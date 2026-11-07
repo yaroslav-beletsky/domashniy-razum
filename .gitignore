@@ -12,6 +12,11 @@ coverage/
 .turbo/
 *.tsbuildinfo
 
+# the bridge fork's dist must be committed (wizard installs the prebuilt
+# binary from a fresh clone — rebuild is not possible on the speaker)
+!station-setup/quasar-bridge-fork/dist/
+!station-setup/quasar-bridge-fork/dist/**
+
 # env and secrets — never commit values
 .env
 .env.*
@@ -50,3 +55,6 @@ agent-service/scripts-remote/probe.sh
 
 # local OpenCode workspace (kept locally, not part of the repo)
 .opencode/
+
+# UI screenshots from verify runs — heavy, reproducible via shots-station/verify.mjs
+shots-station/*.png

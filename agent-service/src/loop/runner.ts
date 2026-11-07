@@ -1,4 +1,4 @@
-import { chat, chatStream, LlmError, type ChatMessage } from "../llm/litellm.js";
+import { chat, chatStream, LlmError, type ChatMessage, type ChatResult } from "../llm/litellm.js";
 import { voiceSystemPrompt, voiceClean } from "./voice.js";
 import { chipValues, renderChips } from "./chips.js";
 import { collectTools, type AgentToolSpec } from "../mcp/registry.js";
@@ -71,12 +71,12 @@ export async function runAgent(opts: {
   const tools: AgentToolSpec[] = await collectTools(agent);
   overheadMs = Date.now() - t0;
 
-  async function doCall(model: string, useTools: boolean, streamFinal: boolean) {
+  async function doCall(model: string, useTools: boolean, streamFinal: boolean, maxTokens: number = agent.max_tokens) {
     const base = {
       model,
       messages: conv,
       temperature: 0,
-      max_tokens: agent.max_tokens,
+      max_tokens: maxTokens,
     };
     if (!useTools || tools.length === 0) {
       return streamFinal
@@ -105,13 +105,52 @@ export async function runAgent(opts: {
     }
   }
 
+  // Защита от тишины: «думающие» модели при temperature=0 тратят max_tokens на reasoning и отдают пустой content
+  // (finish=length). Пустой ответ без вызовов инструментов — неуспех: один повтор той же моделью (с увеличенным
+  // лимитом токенов — на прежнем лимите результат детерминированно тот же), затем запасная модель.
+  const cleanOf = (t: string) => (doVoice ? voiceClean(t) : t.trim());
+  const isEmpty = (r: ChatResult) => r.toolCalls.length === 0 && cleanOf(r.content) === "";
+  const boosted = Math.min(Math.max(agent.max_tokens * 2, 600), 2000);
+
+  async function tryCall(model: string, useTools: boolean, streamFinal: boolean): Promise<ChatResult | null> {
+    try {
+      return await doCall(model, useTools, streamFinal, boosted);
+    } catch {
+      return null; // ошибка повтора = тоже неуспех, идём дальше по цепочке
+    }
+  }
+
+  async function callGuarded(useTools: boolean, streamFinal: boolean): Promise<ChatResult> {
+    const fbBefore = fallbackUsed;
+    const first = await callLlm(agent.model, useTools, streamFinal);
+    if (!isEmpty(first)) return first;
+    // callLlm мог сам уйти на запасную из-за ошибки — тогда пустой ответ пришёл от неё
+    const fromFallback = !fbBefore && fallbackUsed;
+    const model = fromFallback ? (agent.fallback_model as string) : agent.model;
+    audit("llm.empty", { model, stage: "first" }, station?.id, agent.id);
+
+    const second = await tryCall(model, useTools, streamFinal);
+    if (second && !isEmpty(second)) return second;
+    audit("llm.empty", { model, stage: "retry" }, station?.id, agent.id);
+
+    if (!fromFallback && agent.fallback_model) {
+      if (!fbBefore) events.onFallback?.(model, agent.fallback_model);
+      fallbackUsed = true;
+      const third = await tryCall(agent.fallback_model, useTools, streamFinal);
+      if (third && !isEmpty(third)) return third;
+      audit("llm.empty", { model: agent.fallback_model, stage: "fallback" }, station?.id, agent.id);
+      return third ?? second ?? first;
+    }
+    return second ?? first;
+  }
+
   let finish: RunResult["finish"] = "answer";
   let content = "";
 
   try {
     if (tools.length === 0) {
       // Fast path: single LLM call, no tools
-      const r = await callLlm(agent.model, false, true);
+      const r = await callGuarded(false, true);
       content = r.content;
     } else {
       let answered = false;
@@ -123,7 +162,7 @@ export async function runAgent(opts: {
         rounds = round;
         events.onRound?.(round);
         const isLast = round === agent.max_rounds;
-        const res = await callLlm(agent.model, !isLast, false);
+        const res = await callGuarded(!isLast, false);
 
         if (!res.toolCalls.length) {
           content = res.content;
@@ -198,7 +237,7 @@ export async function runAgent(opts: {
       if (!answered) {
         // budget exhausted or rounds over: final streamed call without tools (with fallback)
         try {
-          const final = await callLlm(agent.model, false, true);
+          const final = await callGuarded(false, true);
           content = final.content;
         } catch (e) {
           finish = "error";
@@ -230,7 +269,14 @@ export async function runAgent(opts: {
     audit("agent.error", { error: String(e).slice(0, 300) }, station?.id, agent.id);
   }
 
-  const cleaned = doVoice ? voiceClean(content) : content.trim();
+  // Все попытки (основная, повтор, запасная) дали пустоту — колонка не должна молчать.
+  if (cleanOf(content) === "") {
+    finish = "error";
+    content = FALLBACK_TEXT;
+    audit("llm.empty", { stage: "give_up" }, station?.id, agent.id);
+  }
+
+  const cleaned = cleanOf(content);
   const msTotal = Date.now() - t0;
 
   if (sessionKey) {

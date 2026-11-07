@@ -8,17 +8,18 @@ import { cn } from "@/lib/utils";
 import type { StationView } from "@/lib/stationView";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ModelPicker } from "@/components/stations/model-picker";
-import { AgentBadge, AgentBind } from "@/components/stations/agent-bind";
+import { AgentBind } from "@/components/stations/agent-bind";
 import { StationLog, type LocalLine } from "@/components/stations/station-log";
-import { AdbConsole } from "@/components/stations/adb-console";
+import { AdbTerminal } from "@/components/stations/adb-terminal";
+import { VoicePicker } from "@/components/stations/voice-picker";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StationSvg, ringTone } from "@/components/stations/station-svg";
-import { ModeBadge, StatusBadge } from "@/components/stations/status-badge";
+import { StatusBadge } from "@/components/stations/status-badge";
 import { modelIds, pushRecent } from "@/lib/modelNames";
 import { MODE_INFO, PANEL_MODES, normalizeMode, type PanelMode } from "@/lib/modes";
 
@@ -384,10 +385,6 @@ export default function StationDetailPage() {
               <DropdownMenuItem className="min-h-11 sm:min-h-8" onSelect={() => setEditOpen(true)}>
                 <Pencil className="size-4" /> Переименовать…
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem className="min-h-11 sm:min-h-8" onSelect={() => router.push("/stations")}>
-                К списку
-              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -405,27 +402,21 @@ export default function StationDetailPage() {
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <h1 className="min-w-0 truncate text-xl font-medium text-zinc-50">{s.name}</h1>
             <StatusBadge state={shownState} />
-            <ModeBadge mode={shownMode} muted={offline} />
           </div>
-          {s.agent && (
-            <div className="flex">
-              <AgentBadge agent={s.agent} link />
-            </div>
-          )}
           <p className="font-mono text-[11px] leading-relaxed break-words text-zinc-500">{meta.join(" · ")}</p>
         </div>
       </section>
 
       {offline && (
-        <div role="status" className="flex items-start gap-2.5 rounded-lg border border-zinc-800 bg-zinc-900/40 px-3.5 py-3 text-sm text-zinc-400">
-          <WifiOff className="mt-0.5 size-4 shrink-0 text-zinc-500" />
-          <span>Не на связи — показаны последние настройки, лог в ожидании. Страница сама подхватит колонку, когда она вернётся.</span>
+        <div role="status" className="flex items-center gap-2.5 rounded-lg border border-zinc-800 bg-zinc-900/40 px-3.5 py-2.5 text-sm text-zinc-400">
+          <WifiOff className="size-4 shrink-0 text-zinc-500" />
+          <span>Не на связи — показаны последние настройки, страница подхватит колонку сама.</span>
         </div>
       )}
 
       {!offline && s.state === "bridge-down" && !busy && (
-        <div role="status" className="rounded-lg border border-amber-900/50 bg-amber-950/20 px-3.5 py-3 text-sm text-amber-300/90">
-          Колонка отвечает, но мост не healthy{s.error ? ` — ${s.error}` : ""}. Применение настроек перезапустит мост.
+        <div role="status" className="rounded-lg border border-amber-900/50 bg-amber-950/20 px-3.5 py-2.5 text-sm text-amber-300/90">
+          Мост не healthy{s.error ? ` — ${s.error}` : ""}. Применение настроек перезапустит его.
         </div>
       )}
 
@@ -433,7 +424,7 @@ export default function StationDetailPage() {
       <section className="grid gap-4 rounded-xl border border-zinc-800 bg-zinc-950/60 p-4 sm:grid-cols-2 sm:gap-x-6">
         <div className="grid gap-1.5 sm:col-span-2">
           <Label className="text-xs text-zinc-500">Режим</Label>
-          <div role="radiogroup" aria-label="Режим" className="grid gap-2 sm:grid-cols-3">
+          <div role="radiogroup" aria-label="Режим" className="grid grid-cols-3 gap-1.5">
             {PANEL_MODES.map((m) => {
               const active = shownMode === m;
               const pending = op?.mode === m;
@@ -444,27 +435,28 @@ export default function StationDetailPage() {
                   role="radio"
                   aria-checked={active}
                   disabled={disabled}
+                  title={MODE_INFO[m].hint}
                   onClick={() => !active && apply({ mode: m })}
                   className={cn(
-                    "flex min-h-[44px] flex-col items-start gap-0.5 rounded-lg border px-3 py-2 text-left transition-colors",
+                    "flex min-h-[44px] items-center justify-center gap-1.5 rounded-lg border px-2 text-sm font-medium transition-colors sm:min-h-9",
                     active ? MODE_ACTIVE[m] : "border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:bg-zinc-900",
                     disabled && "cursor-not-allowed opacity-60 hover:bg-transparent",
                     pending && "animate-pulse",
                   )}
                 >
-                  <span className="flex items-center gap-1.5 text-sm font-medium">
-                    {pending && <Loader2 className="size-3 animate-spin" />}
-                    {MODE_INFO[m].label}
-                  </span>
-                  <span className={cn("text-xs leading-snug", active ? "opacity-80" : "text-zinc-500")}>{MODE_INFO[m].hint}</span>
+                  {pending && <Loader2 className="size-3 animate-spin" />}
+                  {MODE_INFO[m].label}
                 </button>
               );
             })}
           </div>
+          {shownMode && (
+            <p className="truncate text-[11px] leading-snug text-zinc-600">{MODE_INFO[shownMode].hint}</p>
+          )}
         </div>
 
         <div className="grid min-w-0 gap-1.5 sm:col-span-2">
-          <Label className="text-xs text-zinc-500">Активная модель</Label>
+          <Label className="text-xs text-zinc-500">Модель</Label>
           <ModelPicker
             models={models}
             value={shownModel}
@@ -511,22 +503,25 @@ export default function StationDetailPage() {
         )}
       </section>
 
-      {/* лог + ADB-консоль: держим оба смонтированными (forceMount), чтобы SSE-поток лога не рвался при переключении.
-          #adb в адресе открывает вкладку консоли (быстрый вход из закладок/QR). */}
+      {/* голос TTS моста-форка: tts.override читается перед каждым ответом, рестарт не нужен */}
+      <VoicePicker stationId={id} disabled={offline || busy} onDone={setToast} />
+
+      {/* лог + ADB-терминал: держим оба смонтированными (forceMount), чтобы SSE-поток лога не рвался при переключении.
+          #adb в адресе открывает вкладку терминала (быстрый вход из закладок/QR). */}
       <Tabs value={tab} onValueChange={(v) => setTab(v === "adb" ? "adb" : "log")}>
         <TabsList className="h-11 w-full sm:h-9 sm:w-auto">
           <TabsTrigger value="log" className="text-xs">
             Живой лог
           </TabsTrigger>
           <TabsTrigger value="adb" className="text-xs">
-            &gt;_ ADB · {s.device}
+            &gt;_ ADB
           </TabsTrigger>
         </TabsList>
-        <TabsContent value="log" forceMount className="mt-3">
+        <TabsContent value="log" forceMount className="mt-3 data-[state=inactive]:hidden">
           <StationLog stationId={id} local={local} offline={offline} />
         </TabsContent>
-        <TabsContent value="adb" forceMount className="mt-3">
-          <AdbConsole stationId={id} device={s.device} offline={offline} stationName={s.name} applying={busy} />
+        <TabsContent value="adb" forceMount className="mt-3 data-[state=inactive]:hidden">
+          <AdbTerminal stationId={id} device={s.device} active={tab === "adb"} />
         </TabsContent>
       </Tabs>
 

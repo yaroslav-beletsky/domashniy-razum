@@ -20,6 +20,8 @@ services:
       - ${HOME}/Documents/home/station-llm/quasar-data:/logs/quasar:ro
       # локальный fallback логов belch-voice (если сервис живёт на этом хосте)
       - ${HOME}/Documents/home/belch-voice/logs:/logs/belch-voice:ro
+      # скрипты подготовки колонок (station-setup/) — мастер пушит их на колонку по adb
+      - ${HOME}/Documents/home/station-llm/station-setup:/opt/station-setup:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/status"]

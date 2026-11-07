@@ -20,7 +20,7 @@
 set -uo pipefail
 
 DEV="${DEV:-192.168.88.79:5555}"
-ADB="${ADB:-$(command -v adb || echo /opt/homebrew/bin/adb)}"
+ADB="${ADB:-$(command -v adb || echo "$HOME/Library/Android/sdk/platform-tools/adb")}"
 STATE="/data/opt/quasar-bridge"
 APP="$STATE/app"
 CFG="$STATE/config.json"

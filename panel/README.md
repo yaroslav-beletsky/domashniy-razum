@@ -27,6 +27,18 @@ route handlers. Внутри контейнера: `adb` (android-tools) и `ssh
   «Применить на колонки» (connect/disconnect по SSE); sticky тест-панель с лентой `tool_call` и таймингом (>4.5 с — янтарным).
   На карточке и странице станции — бейдж `Агент: …`, кнопки «Подключить к агенту» / «Отключить».
   Имя/аватар/описание агента хранятся в панели (`panel-agents.json`, том `secrets/adb`), остальное — в agent-service.
+- **Мастер** (`/add-station`) — пошаговая настройка «нулевой» колонки до полного контроля (ветка A,
+  см. `docs/add-station-wizard.md`): поиск в LAN (TCP-скан :5555), черновик с прогрессом (13 шагов,
+  персистентно в `panel-wizard.json`), ручные шаги — инструкция + «Готово», автошаги — кнопка «Выполнить»
+  с SSE-прогрессом (проверки + живой журнал), опасные шаги с явным подтверждением, авто-классификация
+  точки входа для уже «тронутой» колонки (A.4). Автоматизированы: проверка стенда (HTTP), adb/root,
+  OTA-проверка, установка моста (источник — локальный форк со сменой голоса TTS из
+  `/opt/station-setup/quasar-bridge-fork/dist`; бандла нет — фолбэк на апстрим-релиз GitHub;
+  после установки в `tts.override` на колонке пишется голос `WIZARD_BRIDGE_VOICE`, откат — `rm tts.override`),
+  три слоя закрепления (пуш скриптов `station-setup/` по adb), блокировка
+  обновлений + выгрузка бэкапа, режим/модель (через `apply`), регистрация в панели + привязка агента.
+  Заглушки/TODO(v2): запись `dhcpcd.conf`, управление стендом
+  (start/stop, `run/downgrade`), ARP/MAC/mDNS из контейнера.
 - **Логи** (`/logs`) — SSE: `belch-voice`, `quasar-bridge`, `adb`, `panel`.
 
 ## API
@@ -49,6 +61,9 @@ route handlers. Внутри контейнера: `adb` (android-tools) и `ssh
 | `POST /api/station/model` `{model}` | `QUASAR_LLM_MODEL` в `runtime.env`, `check`, `restart` |
 | `POST /api/voice/stt` / `tts` / `ask` | прокси к voice-chain (multipart `file` / JSON `{text}`) |
 | `GET /api/logs/stream?source=…` | SSE; без/с неизвестным source — одно событие `offline` |
+| `POST /api/wizard/scan` `{subnet?}` | SSE-скан LAN: `progress`/`host`/`done {candidates}` |
+| `GET\|POST /api/wizard/state` | черновики мастера; POST: `create`/`update`/`confirm`/`skip`/`back`/`delete` |
+| `POST /api/wizard/run` `{key, step, params?}` | SSE-прогон автошага: `log`/`check`/`step`/`done`/`error`; шаги: `classify`, `stand`, `ota`, `adbroot`, `bridge`, `persist`, `staticip`, `noupdate`, `mode` `{mode?, model?}`, `register` `{name?, kind?, agent?}`, `test` |
 
 ### Режимы колонки
 
@@ -90,6 +105,9 @@ route handlers. Внутри контейнера: `adb` (android-tools) и `ssh
 | `AGENT_SERVICE_URL` | agent-service из контейнера, по умолчанию `http://host.docker.internal:4100` |
 | `AGENT_PUBLIC_BASE` | base_url, который прописывается колонке, `http://192.168.88.207:4100/v1` |
 | `VOICE_LOG_SSH_TARGET` / `_KEY` / `_PATH` | ssh-tail лога voice-chain на .23 |
+| `WIZARD_BRIDGE_FORK_DIST` | каталог форк-бандла моста внутри контейнера, `/opt/station-setup/quasar-bridge-fork/dist`; пусто = всегда апстрим с GitHub |
+| `WIZARD_BRIDGE_VOICE` | голос ответа моста-форка: `ermil` (мужской, по умолчанию) \| `zahar` \| `oksana` \| `jane` \| `shitova` \| `omazh`; пишется в `/data/opt/quasar-bridge/tts.override`, откат — `rm tts.override` |
+| `WIZARD_BRIDGE_VERSION` | версия апстрим-релиза GitHub для фолбэка, `0.7.4` |
 
 Секреты монтируются из `~/Documents/home/station-llm/secrets/` (colima шарит только
 `~/Documents`): `adb/` → `/home/node/.android`, `ssh/` → `/ssh:ro`. В репозиторий не попадают.

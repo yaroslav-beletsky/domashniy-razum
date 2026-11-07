@@ -1,5 +1,11 @@
 # voice-chain — голосовая цепочка STT→LLM→TTS без Алисы
 
+> **Статус (7 ноября 2026): ОСТАНОВЛЕНА.** Телефон (`RF8T60VDLHE`) выведен из участия —
+> движки `gigaam-phone`/`piper-phone` больше не используются. launchd-агент
+> `ru.yaroslav.station-voice` выгружен, plist в `~/LaunchAgents` переименован в
+> `.plist.disabled` (автозапуска нет). Модели на телефоне (`/data/local/tmp`) не тронуты.
+> Панель при этом штатно показывает voice offline (`/api/status` → `voice.online: false`).
+
 Поднято 7 ноября 2026. Работает на Mac (`192.168.88.23`, тот же, где adb и телефон),
 STT/TTS считаются на телефоне SM-G780G (`RF8T60VDLHE`) через adb, LLM — домашний
 LiteLLM на Mac mini (`192.168.88.207:4000`).

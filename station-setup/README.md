@@ -7,12 +7,13 @@
 Порядок применения при воспроизведении:
 
 1. Поднять стенд `lite-kit` (DNS + HTTPS на `192.168.88.23`) и отдать откатную
-   прошивку `.46` — см. `/private/tmp/lite-kit` (это отдельный репозиторий, здесь не копируем).
+   прошивку `.46` — см. `~/lite-kit` на `.23` (это отдельный репозиторий, здесь не копируем;
+   живёт как LaunchDaemon `ru.yaroslav.lite-kit`, поднимается сам после ребута).
 2. Сбросить колонку, дождаться OTA на `.46` и появления `adb connect <ip>:5555`.
 3. `yandex-noupdate.sh` — выключить обновления (пока ADB жив).
 4. Слой защиты ADB: `chattr +i` на маркеры + `patch-quasar-cfg-adbd.sh`.
 5. `S98adbd` — автозапуск `adbd`, `touch` маркеров и блок DoH.
-6. `S96quasar-bridge` + сам `quasar-bridge` — голос в LiteLLM.
+6. `S96quasar-bridge` + мост `quasar-bridge` (форк со сменой голоса, `tts.override` → `voice=ermil`) — голос в LiteLLM.
 
 ## Что за файлы
 
@@ -26,15 +27,20 @@
 | `markers-adb.md` | разбор механизма маркеров `/data/quasar/activate_adb_*` и `quasar_adb.log`. | наш разбор со станции |
 | `activate_adb.sh` | вендорный скрипт активации ADB — справочно, на станцию не копируется. | снят со станции, `/system/vendor/quasar/activate_adb.sh` |
 | `adb_options.inc` | вендорный include с путями маркеров и журналом — справочно. | снят со станции, `/system/vendor/quasar/adb_options.inc` |
+| `quasar-bridge-fork/` | наш форк моста со сменой голоса ответа (`tts.override`, `voice=…`): исходники, `tts-voice.patch`, `build.sh`, готовый `dist/`. Мастер панели ставит именно его. | форк апстрима `v0.7.4`, см. `quasar-bridge-fork/README.md` |
 
 ## Чего здесь нет (соседние репозитории)
 
 - **Стенд `lite-kit`** (dnsmasq + `equasar_server.py` + серты eMudhra + откатная
-  прошивка) — `/private/tmp/lite-kit`. Ставит DNS-подмену `quasar.yandex.net` и
+  прошивка) — `~/lite-kit` на `.23` (LaunchDaemon `ru.yaroslav.lite-kit` в
+  `/Library/LaunchDaemons`). Ставит DNS-подмену `quasar.yandex.net` и
   отдаёт в `/get_sync_info` конфиг с `adbd.remoteActivation=true`.
-- **`quasar-bridge`** — Go-мост от `skrashevich`, ставится из его релиза в
-  `/data/opt/quasar-bridge`. `S96quasar-bridge` запускает его `app/control.sh start`.
+- **`quasar-bridge`** — Go-мост от `skrashevich`; `S96quasar-bridge` запускает его `app/control.sh start`.
   Он же (`control.sh apply`) переводит `quasar.cfg` uProxy на `ws://127.0.0.1:8443/uni.ws`.
+  Ставит его мастер панели (`panel/`), источник — **наш форк** `quasar-bridge-fork/dist/` (со сменой
+  голоса: `voice=ermil` в `/data/opt/quasar-bridge/tts.override`, читается на каждый ответ; откат
+  голоса — `rm tts.override`). Форк-бандла нет — мастер качает апстрим-релиз с GitHub (женский голос);
+  откат на апстрим — вернуть оригинальный бинарь в `app/bin/quasar-bridge`.
 - **`yandex-noupdate.sh`** взят из `yandex-station-extended` целиком; апстрим может
   отличаться — сверяйте, если у вас свежий клон.
 

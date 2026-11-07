@@ -1,7 +1,7 @@
 // «Отключить от агента»: base_url/ключ/модель возвращаются из runtime.env.bak-agent на колонке.
-// POST {} → SSE как у connect-agents; в конце привязка в agent-service снимается.
+// POST {} → SSE как у connect-agents; в конце привязка в agent-service снимается и ключ колонки отзывается.
 import { NextRequest } from "next/server";
-import { bindAgent, findSvcStation } from "@/lib/agentBind";
+import { findSvcStation, releaseStation } from "@/lib/agentBind";
 import { BIND_LABELS, notFound, sse } from "@/lib/agentRoutes";
 import { appendLog } from "@/lib/logs";
 import { recordEvent } from "@/lib/events";
@@ -24,8 +24,14 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
     appendLog("info", "station", `${device}: отключаем от агента — старт`);
     const r = await disconnectStationAgent(device, emit);
     if (r.ok) {
+      // мост уже вернул прежние base_url/ключ/модель — теперь снимаем привязку и отзываем ключ колонки в сервисе.
+      // Ошибка отзыва не откатывает отвязку: только предупреждение в журнале.
       const f = await findSvcStation(device);
-      if (f.ok && f.station) await bindAgent(f.station.id, null);
+      if (f.ok && f.station) {
+        const rel = await releaseStation(f.station.id);
+        if (!rel.unbound) appendLog("warn", "station", `${device}: привязка в agent-service не снята`);
+        if (!rel.revoked) appendLog("warn", "station", `${device}: ключ колонки в agent-service не отозван — ${rel.error ?? "?"}`);
+      }
       recordEvent("system", `станция ${device}: отключена от агента, мост healthy (PID ${r.pid})`);
       appendLog("info", "station", `${device}: отключена от агента — готово, PID ${r.pid}`);
       send({ type: "done", pid: r.pid, model: r.model });

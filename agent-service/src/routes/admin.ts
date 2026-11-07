@@ -352,6 +352,16 @@ adminRouter.post("/stations/:id/key", (req, res) => {
   res.json({ key, note: "shown once" });
 });
 
+// Отзыв ключа колонки: key_hash → NULL, прежний sk-station-* перестаёт проходить авторизацию. Идемпотентно.
+adminRouter.delete("/stations/:id/key", (req, res) => {
+  const s = loadStation(req);
+  if (!s) return res.status(404).json({ error: { message: "not found", type: "not_found" } });
+  const had = s.key_hash !== null;
+  db.prepare("UPDATE stations SET key_hash = NULL, updated_at = ? WHERE id = ?").run(Date.now(), s.id);
+  audit("admin.station.key.revoke", { id: s.id, had_key: had });
+  res.json({ ok: true, station: s.id, revoked: had });
+});
+
 // ---------- sessions ----------
 adminRouter.delete("/sessions/:station", (req, res) => {
   const ok = deleteSession(req.params.station);

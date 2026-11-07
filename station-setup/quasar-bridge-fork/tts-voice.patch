@@ -1,0 +1,792 @@
+diff --git a/cmd/quasar-bridge/main.go b/cmd/quasar-bridge/main.go
+index 923899a..6887903 100644
+--- a/cmd/quasar-bridge/main.go
++++ b/cmd/quasar-bridge/main.go
+@@ -148,6 +148,19 @@ func main() {
+ 					attrs = append(attrs, "wait_client_approval", req.GetRequest().GetUniproxyOptions().GetWaitClientApproval())
+ 				}
+ 			}
++			// station-llm fork: диагностика TTS. Текст ошибки сервера и параметры TtsGenerate (без текста реплики).
++			if frame.Server != nil {
++				if frame.Server.GetEvent().GetTtsSpeak() != nil {
++					attrs = append(attrs, "ref", frame.Server.GetEvent().GetHeader().GetRefMessageId())
++				}
++				if ex := frame.Server.GetEvent().GetEventException(); ex != nil {
++					msg := ex.GetError().GetErrorMessage()
++					if len(msg) > 400 {
++						msg = msg[:400]
++					}
++					attrs = append(attrs, "exception", msg, "ref", frame.Server.GetEvent().GetHeader().GetRefMessageId())
++				}
++			}
+ 			if name == "opaque" && count <= 8 {
+ 				attrs = append(attrs, "framing", wire.Probe(data, d))
+ 			}
+diff --git a/internal/bridge/native.go b/internal/bridge/native.go
+index d26c9d7..f9db38c 100644
+--- a/internal/bridge/native.go
++++ b/internal/bridge/native.go
+@@ -7,8 +7,11 @@ import (
+ 	"errors"
+ 	"fmt"
+ 	"log/slog"
++	"os"
++	"strconv"
+ 	"strings"
+ 	"sync"
++	"sync/atomic"
+ 	"time"
+ 
+ 	"github.com/coder/websocket"
+@@ -76,6 +79,8 @@ type nativeRequest struct {
+ 	soundDirective                  *soundDirective
+ 	soundSealed                     bool
+ 	expires                         *time.Timer
++	probe                           *ttsProbe
++	style                           *ttsStyle
+ }
+ type Native struct {
+ 	connectionScope  string
+@@ -99,7 +104,9 @@ type Native struct {
+ 
+ func NewNative(ctx context.Context, up, down Sender, resolver Resolver) *Native {
+ 	ctx, cancel := context.WithCancel(ctx)
+-	return &Native{connectionScope: newID(), ctx: ctx, cancel: cancel, up: up, down: down, resolver: resolver, ShouldListen: true, requests: map[string]*nativeRequest{}, tts: map[string]*nativeRequest{}, streams: map[uint32]*nativeRequest{}, blocked: map[uint32]*nativeRequest{}}
++	n := &Native{connectionScope: newID(), ctx: ctx, cancel: cancel, up: up, down: down, resolver: resolver, ShouldListen: true, requests: map[string]*nativeRequest{}, tts: map[string]*nativeRequest{}, streams: map[uint32]*nativeRequest{}, blocked: map[uint32]*nativeRequest{}}
++	n.startCaseWatcher()
++	return n
+ }
+ func (n *Native) Close() {
+ 	n.cancel()
+@@ -112,6 +119,22 @@ func (n *Native) Close() {
+ 	n.mu.Unlock()
+ 	n.wg.Wait()
+ }
++
++// station-llm fork: фоновый запуск кейсов озвучки из файла tts.cases (см. tts_probe.go).
++func (n *Native) startCaseWatcher() {
++	n.wg.Go(func() {
++		t := time.NewTicker(2 * time.Second)
++		defer t.Stop()
++		for {
++			select {
++			case <-n.ctx.Done():
++				return
++			case <-t.C:
++				n.runTtsCases()
++			}
++		}
++	})
++}
+ func (n *Native) Client(ctx context.Context, k websocket.MessageType, data []byte) error {
+ 	f := wire.Decode(data, wire.ClientToServer)
+ 	if f.Client == nil || f.Client.GetEvent() == nil {
+@@ -283,6 +306,9 @@ func (n *Native) Server(ctx context.Context, k websocket.MessageType, data []byt
+ 		if len(data) >= 4 {
+ 			n.mu.Lock()
+ 			p := n.streams[binary.BigEndian.Uint32(data)]
++			if p != nil && p.probe != nil {
++				p.probe.audio(data[4:])
++			}
+ 			drop := n.blocked[binary.BigEndian.Uint32(data)] != nil || (p != nil && p.canceled)
+ 			if p != nil && p.streaming && !drop {
+ 				out, err := p.audio.feed(data[4:])
+@@ -304,6 +330,9 @@ func (n *Native) Server(ctx context.Context, k websocket.MessageType, data []byt
+ 	}
+ 	if sc := f.Server.GetStreamControl(); sc != nil {
+ 		n.mu.Lock()
++		if q := n.streams[uint32(sc.GetStreamId())]; q != nil && q.probe != nil && sc.GetClose() != nil {
++			q.probe.close()
++		}
+ 		if n.blocked[uint32(sc.GetStreamId())] != nil {
+ 			delete(n.blocked, uint32(sc.GetStreamId()))
+ 			n.mu.Unlock()
+@@ -395,6 +424,18 @@ func (n *Native) Server(ctx context.Context, k websocket.MessageType, data []byt
+ 	}
+ 	if isTTS {
+ 		if p.canceled {
++			if e.GetTtsSpeak() != nil && p.ttsID != "" && p.ttsID == p.id {
++				// station-llm fork: пробный TtsGenerate — глушим его аудиопоток.
++				if p.probe != nil {
++					p.probe.speak()
++					n.streams[uint32(e.GetHeader().GetStreamId())] = p
++				} else {
++					n.blocked[uint32(e.GetHeader().GetStreamId())] = p
++				}
++			}
++			if ex := e.GetEventException(); ex != nil && p.probe != nil {
++				p.probe.fail(ex.GetError().GetErrorMessage())
++			}
+ 			n.mu.Unlock()
+ 			return nil
+ 		}
+@@ -640,6 +681,8 @@ func (n *Native) sendCancel(ctx context.Context, id string) error {
+ 	return n.up(ctx, websocket.MessageBinary, b)
+ }
+ func (n *Native) reply(p *nativeRequest, text string) error {
++	// station-llm fork: тег стиля [tts emotion=… speed=…] вырезается из показа и озвучки.
++	text, p.style = splitTtsStyle(text)
+ 	if p.streaming {
+ 		return n.finishDeferred(p, text)
+ 	}
+@@ -674,13 +717,147 @@ func (n *Native) reply(p *nativeRequest, text string) error {
+ 	}
+ 	return n.synthesize(p, text)
+ }
++
++// newTtsGenerate builds the TtsGenerate event body. station-llm fork patch:
++// QUASAR_TTS_VOICE (optional) is sent as TtsGenerate.Voice; unset/empty keeps
++// the upstream behaviour (field absent, Yandex picks the default voice).
++//
++// Диагностика/перебор без рестарта: если в рабочем каталоге моста есть файл
++// tts.override со строками key=value (voice, emotion, quality, speed, lang),
++// он перекрывает окружение и читается на КАЖДЫЙ запрос озвучки.
++func newTtsGenerate(text string) *tts.TTtsGenerate {
++	g := &tts.TTtsGenerate{Text: new(text), Lang: new("ru-RU"), Format: new("audio/opus")}
++	if v := strings.TrimSpace(os.Getenv("QUASAR_TTS_VOICE")); v != "" {
++		g.Voice = new(v)
++	}
++	applyTtsOverride(g, ttsOverridePath)
++	return g
++}
++
++var ttsOverridePath = "tts.override"
++
++func applyTtsOverride(g *tts.TTtsGenerate, path string) {
++	data, err := os.ReadFile(path)
++	if err != nil || len(data) > 4096 {
++		return
++	}
++	for _, line := range strings.Split(string(data), "\n") {
++		k, v, ok := strings.Cut(strings.TrimSpace(line), "=")
++		v = strings.TrimSpace(v)
++		if !ok || v == "" {
++			continue
++		}
++		switch strings.TrimSpace(k) {
++		case "voice":
++			g.Voice = new(v)
++		case "emotion":
++			g.Emotion = new(v)
++		case "quality":
++			g.Quality = new(v)
++		case "lang":
++			g.Lang = new(v)
++		case "speed":
++			if f, err := strconv.ParseFloat(v, 64); err == nil {
++				g.Speed = new(f)
++			}
++		case "volume":
++			if f, err := strconv.ParseFloat(v, 64); err == nil {
++				g.Volume = new(f)
++			}
++		}
++	}
++}
+ func (n *Native) synthesize(p *nativeRequest, text string) error {
+-	t := &client.TClientMessage{Message: &client.TClientMessage_Event{Event: &client.TClientMessage_TEvent{Header: &header.TEventHeader{MessageId: p.ttsID}, Event: &client.TClientMessage_TEvent_TtsGenerate{TtsGenerate: &tts.TTtsGenerate{Text: new(text), Lang: new("ru-RU"), Format: new("audio/opus")}}}}}
++	g := newTtsGenerate(cleanSpeech(text))
++	p.style.apply(g)
++	slog.Info("tts_generate_sent", "request", requestTag(p.ttsID), "voice", g.GetVoice(), "emotion", g.GetEmotion(), "quality", g.GetQuality(), "speed", g.GetSpeed(), "volume", g.GetVolume(), "lang", g.GetLang(), "format", g.GetFormat(), "text_len", len(text), "styled", p.style != nil)
++	t := &client.TClientMessage{Message: &client.TClientMessage_Event{Event: &client.TClientMessage_TEvent{Header: &header.TEventHeader{MessageId: p.ttsID}, Event: &client.TClientMessage_TEvent_TtsGenerate{TtsGenerate: g}}}}
+ 	b, err := (wire.Frame{Client: t, Prefix: []byte("AAPI")}).Marshal()
+ 	if err != nil {
+ 		return err
+ 	}
+-	return n.up(p.ctx, websocket.MessageBinary, b)
++	if err := n.up(p.ctx, websocket.MessageBinary, b); err != nil {
++		return err
++	}
++	if text != "а" {
++		n.runTtsProbes(p)
++	}
++	return nil
++}
++
++// station-llm fork: изолированная проба голосов. Если в tts.override есть строка
++// probe=voice[@emotion],voice[@emotion],… то после настоящей озвучки мост шлёт серверу
++// по одному пробному TtsGenerate на каждого кандидата (текст "а"). Ответы на пробы
++// отбрасываются (запрос помечен canceled), результат смотреть в service.log:
++// tts_probe_sent (id пробы) + frame EventException (exception, ref=id) или TtsSpeak (ref=id).
++// Не чаще раза в 20 с, максимум 12 кандидатов.
++var lastProbe atomic.Int64
++
++func readProbeList(path string) []string {
++	data, err := os.ReadFile(path)
++	if err != nil || len(data) > 4096 {
++		return nil
++	}
++	for _, line := range strings.Split(string(data), "\n") {
++		k, v, ok := strings.Cut(strings.TrimSpace(line), "=")
++		if ok && strings.TrimSpace(k) == "probe" {
++			var out []string
++			for _, item := range strings.Split(v, ",") {
++				if item = strings.TrimSpace(item); item != "" && len(out) < 12 {
++					out = append(out, item)
++				}
++			}
++			return out
++		}
++	}
++	return nil
++}
++
++func (n *Native) runTtsProbes(p *nativeRequest) {
++	items := readProbeList(ttsOverridePath)
++	if len(items) == 0 {
++		return
++	}
++	now := time.Now().UnixMilli()
++	if prev := lastProbe.Load(); now-prev < 20000 || !lastProbe.CompareAndSwap(prev, now) {
++		return
++	}
++	n.wg.Go(func() {
++		for _, item := range items {
++			voice, emotion, _ := strings.Cut(item, "@")
++			g := &tts.TTtsGenerate{Text: new("а"), Lang: new("ru-RU"), Format: new("audio/opus")}
++			if voice != "" {
++				g.Voice = new(voice)
++			}
++			if emotion != "" {
++				g.Emotion = new(emotion)
++			}
++			id := newID()
++			dummy := &nativeRequest{id: id, ttsID: id, canceled: true}
++			n.mu.Lock()
++			n.tts[id] = dummy
++			n.mu.Unlock()
++			slog.Info("tts_probe_sent", "probe", id, "voice", voice, "emotion", emotion)
++			t := &client.TClientMessage{Message: &client.TClientMessage_Event{Event: &client.TClientMessage_TEvent{Header: &header.TEventHeader{MessageId: id}, Event: &client.TClientMessage_TEvent_TtsGenerate{TtsGenerate: g}}}}
++			b, err := (wire.Frame{Client: t, Prefix: []byte("AAPI")}).Marshal()
++			if err == nil {
++				err = n.up(p.ctx, websocket.MessageBinary, b)
++			}
++			if err != nil {
++				slog.Warn("tts_probe_failed", "probe", id, "voice", voice)
++			}
++			time.AfterFunc(60*time.Second, func() {
++				n.mu.Lock()
++				delete(n.tts, id)
++				n.mu.Unlock()
++			})
++			select {
++			case <-time.After(1500 * time.Millisecond):
++			case <-p.ctx.Done():
++				return
++			}
++		}
++	})
+ }
+ func requestTag(id string) string {
+ 	sum := sha256.Sum256([]byte(id))
+diff --git a/internal/bridge/tts_probe.go b/internal/bridge/tts_probe.go
+new file mode 100644
+index 0000000..cb2f6d3
+--- /dev/null
++++ b/internal/bridge/tts_probe.go
+@@ -0,0 +1,254 @@
++package bridge
++
++// station-llm fork: стенд для проб озвучки (без колонки и без голоса владельца).
++//
++// Файл tts.cases в рабочем каталоге моста: по одному JSON-объекту на строку, например
++//
++//	{"id":"plain","text":"Привет, как дела?"}
++//	{"id":"ssml-break","text":"<speak>Привет<break time=\"500ms\"/>как дела</speak>","voice":"ermil"}
++//	{"id":"pcm","text":"Привет","format":"audio/x-pcm;bit=16;rate=16000"}
++//
++// Поля: id, text, voice (по умолчанию ermil), emotion, quality, format, lang, tag, speed, volume.
++// Мост забирает файл (переименовывает в tts.cases.taken, чтобы не запускать дважды), шлёт серверу
++// TtsGenerate по кейсу на каждую строку, глушит аудио и пишет в service.log строку tts_case_result:
++// outcome=ok|exception|timeout, exception (текст), audio_bytes, audio_frames, first_ms, total_ms.
++// С форматом PCM 16 кГц длительность = audio_bytes / 32000 с.
++
++import (
++	"bufio"
++	"bytes"
++	"encoding/json"
++	"log/slog"
++	"os"
++	"strings"
++	"sync"
++	"time"
++
++	"github.com/coder/websocket"
++	header "github.com/freequasar/quasar-go-genproto/proto/alice/protos/api/alicekit/events/common/event_header"
++	tts "github.com/freequasar/quasar-go-genproto/proto/alice/protos/api/alicekit/events/tts_generate"
++	client "github.com/freequasar/quasar-go-genproto/proto/alice/protos/api/alicekit/protocol/client"
++
++	"quasarbridge/internal/wire"
++)
++
++var ttsCasesPath = "tts.cases"
++
++type ttsCase struct {
++	ID      string   `json:"id"`
++	Text    string   `json:"text"`
++	Voice   string   `json:"voice"`
++	Emotion string   `json:"emotion"`
++	Quality string   `json:"quality"`
++	Format  string   `json:"format"`
++	Lang    string   `json:"lang"`
++	Tag     string   `json:"tag"`
++	Speed   *float64 `json:"speed"`
++	Volume  *float64 `json:"volume"`
++	Dump    bool     `json:"dump"`
++}
++
++// ttsProbe копит результат одного пробного запроса озвучки.
++type ttsProbe struct {
++	mu        sync.Mutex
++	started   time.Time
++	firstAt   time.Time
++	bytes     int
++	frames    int
++	pcm       []byte
++	exception string
++	closed    bool
++	done      chan struct{}
++	once      sync.Once
++}
++
++func newTtsProbe() *ttsProbe { return &ttsProbe{started: time.Now(), done: make(chan struct{})} }
++
++func (t *ttsProbe) speak() {
++	t.mu.Lock()
++	if t.firstAt.IsZero() {
++		t.firstAt = time.Now()
++	}
++	t.mu.Unlock()
++}
++
++func (t *ttsProbe) audio(b []byte) {
++	t.mu.Lock()
++	t.bytes += len(b)
++	t.frames++
++	if len(t.pcm)+len(b) <= 4<<20 {
++		t.pcm = append(t.pcm, b...)
++	}
++	t.mu.Unlock()
++}
++
++func (t *ttsProbe) fail(msg string) {
++	t.mu.Lock()
++	t.exception = msg
++	t.mu.Unlock()
++	t.once.Do(func() { close(t.done) })
++}
++
++func (t *ttsProbe) close() {
++	t.mu.Lock()
++	t.closed = true
++	t.mu.Unlock()
++	t.once.Do(func() { close(t.done) })
++}
++
++func parseTtsCases(data []byte) []ttsCase {
++	var out []ttsCase
++	sc := bufio.NewScanner(bytes.NewReader(data))
++	sc.Buffer(make([]byte, 0, 64*1024), 64*1024)
++	for sc.Scan() && len(out) < 40 {
++		line := strings.TrimSpace(sc.Text())
++		if line == "" || strings.HasPrefix(line, "#") {
++			continue
++		}
++		var c ttsCase
++		if err := json.Unmarshal([]byte(line), &c); err != nil || c.Text == "" {
++			continue
++		}
++		if c.ID == "" {
++			c.ID = "case"
++		}
++		out = append(out, c)
++	}
++	return out
++}
++
++func (c ttsCase) generate() *tts.TTtsGenerate {
++	g := &tts.TTtsGenerate{Text: new(c.Text), Lang: new("ru-RU"), Format: new("audio/opus")}
++	voice := c.Voice
++	if voice == "" {
++		voice = "ermil"
++	}
++	g.Voice = new(voice)
++	if c.Lang != "" {
++		g.Lang = new(c.Lang)
++	}
++	if c.Format != "" {
++		g.Format = new(c.Format)
++	}
++	if c.Emotion != "" {
++		g.Emotion = new(c.Emotion)
++	}
++	if c.Quality != "" {
++		g.Quality = new(c.Quality)
++	}
++	if c.Tag != "" {
++		g.Tag = new(c.Tag)
++	}
++	g.Speed = c.Speed
++	g.Volume = c.Volume
++	return g
++}
++
++// runTtsCases вызывается раз в пару секунд; работает, только если файл tts.cases существует.
++func (n *Native) runTtsCases() {
++	st, err := os.Stat(ttsCasesPath)
++	if err != nil || st.Size() == 0 || st.Size() > 64*1024 {
++		return
++	}
++	taken := ttsCasesPath + ".taken"
++	if err := os.Rename(ttsCasesPath, taken); err != nil {
++		return // забрал другой экземпляр
++	}
++	data, err := os.ReadFile(taken)
++	if err != nil {
++		return
++	}
++	cases := parseTtsCases(data)
++	slog.Info("tts_cases_start", "count", len(cases))
++	for _, c := range cases {
++		select {
++		case <-n.ctx.Done():
++			return
++		default:
++		}
++		n.runTtsCase(c)
++		select {
++		case <-time.After(600 * time.Millisecond):
++		case <-n.ctx.Done():
++			return
++		}
++	}
++	slog.Info("tts_cases_done", "count", len(cases))
++}
++
++func (n *Native) runTtsCase(c ttsCase) {
++	g := c.generate()
++	id := newID()
++	probe := newTtsProbe()
++	p := &nativeRequest{id: id, ttsID: id, canceled: true, probe: probe}
++	n.mu.Lock()
++	n.tts[id] = p
++	n.mu.Unlock()
++	defer func() {
++		time.AfterFunc(30*time.Second, func() {
++			n.mu.Lock()
++			delete(n.tts, id)
++			for s, q := range n.streams {
++				if q == p {
++					delete(n.streams, s)
++				}
++			}
++			n.mu.Unlock()
++		})
++	}()
++	t := &client.TClientMessage{Message: &client.TClientMessage_Event{Event: &client.TClientMessage_TEvent{Header: &header.TEventHeader{MessageId: id}, Event: &client.TClientMessage_TEvent_TtsGenerate{TtsGenerate: g}}}}
++	b, err := (wire.Frame{Client: t, Prefix: []byte("AAPI")}).Marshal()
++	if err == nil {
++		err = n.up(n.ctx, websocket.MessageBinary, b)
++	}
++	if err != nil {
++		slog.Warn("tts_case_result", "id", c.ID, "outcome", "send_failed")
++		return
++	}
++	outcome := "ok"
++	select {
++	case <-probe.done:
++		// после закрытия потока даём досыпаться хвосту
++		time.Sleep(150 * time.Millisecond)
++	case <-time.After(10 * time.Second):
++		outcome = "timeout"
++	case <-n.ctx.Done():
++		return
++	}
++	probe.mu.Lock()
++	defer probe.mu.Unlock()
++	if probe.exception != "" {
++		outcome = "exception"
++	}
++	firstMs := int64(-1)
++	if !probe.firstAt.IsZero() {
++		firstMs = probe.firstAt.Sub(probe.started).Milliseconds()
++	}
++	if c.Dump && len(probe.pcm) > 0 {
++		if err := os.MkdirAll("tts-dump", 0o700); err == nil {
++			_ = os.WriteFile("tts-dump/"+safeName(c.ID)+".pcm", probe.pcm, 0o600)
++		}
++	}
++	text := c.Text
++	if r := []rune(text); len(r) > 90 {
++		text = string(r[:90]) + "…"
++	}
++	slog.Info("tts_case_result", "id", c.ID, "outcome", outcome, "exception", probe.exception,
++		"audio_bytes", probe.bytes, "audio_frames", probe.frames, "first_ms", firstMs,
++		"total_ms", time.Since(probe.started).Milliseconds(),
++		"voice", g.GetVoice(), "emotion", g.GetEmotion(), "quality", g.GetQuality(), "format", g.GetFormat(),
++		"speed", g.GetSpeed(), "volume", g.GetVolume(), "text_len", len([]rune(c.Text)), "text", text)
++}
++
++func safeName(s string) string {
++	out := make([]rune, 0, len(s))
++	for _, r := range s {
++		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' {
++			out = append(out, r)
++		}
++	}
++	if len(out) == 0 {
++		return "case"
++	}
++	return string(out)
++}
+diff --git a/internal/bridge/tts_style.go b/internal/bridge/tts_style.go
+new file mode 100644
+index 0000000..649e501
+--- /dev/null
++++ b/internal/bridge/tts_style.go
+@@ -0,0 +1,120 @@
++package bridge
++
++// station-llm fork: выразительная озвучка ответа модели.
++//
++// 1. Тег стиля в начале ответа (его пишет агент/модель, мост вырезает до показа и озвучки):
++//
++//	[tts emotion=good speed=1.15] Привет, Ярослав!
++//
++// Ключи: emotion (neutral|good|evil), speed (0.6..1.6), volume (0.3..2.0).
++// Тег перекрывает глобальные значения из tts.override только для этого ответа.
++//
++// 2. Подготовка текста к синтезу (сервер SSML не понимает и читает теги вслух):
++//   - <break time="500ms"/> → sil<[500]> (паузу сервер понимает только в такой записи);
++//   - остальные XML-теги вырезаются, markdown (**, _, `, #, ссылки) чистится;
++//   - «плюс» перед гласной (з+амок) и sil<[мс]> остаются как есть.
++
++import (
++	"regexp"
++	"strconv"
++	"strings"
++
++	tts "github.com/freequasar/quasar-go-genproto/proto/alice/protos/api/alicekit/events/tts_generate"
++)
++
++type ttsStyle struct {
++	emotion string
++	speed   *float64
++	volume  *float64
++}
++
++var (
++	styleTagRe = regexp.MustCompile(`^\s*\[tts\s+([^\]]{0,120})\]\s*`)
++	breakRe    = regexp.MustCompile(`(?i)<break\s+time\s*=\s*"?(\d+(?:\.\d+)?)\s*(ms|s)?"?\s*/?>`)
++	xmlTagRe   = regexp.MustCompile(`</?[A-Za-z][^<>]{0,200}>`)
++	linkRe     = regexp.MustCompile(`\[([^\]]+)\]\((?:[^)\s]+)\)`)
++	mdMarkRe   = regexp.MustCompile("[*`]+|__+|~~")
++	mdLineRe   = regexp.MustCompile(`(?m)^\s{0,3}(?:#{1,6}\s+|>\s+|[-*+]\s+)`)
++	spacesRe   = regexp.MustCompile(`[ \t]{2,}`)
++	silPlainRe = regexp.MustCompile(`(?i)\bsil<(\d{1,4})>`)
++)
++
++// splitTtsStyle вырезает ведущий тег [tts …] и возвращает чистый текст и стиль (nil, если тега нет).
++func splitTtsStyle(text string) (string, *ttsStyle) {
++	m := styleTagRe.FindStringSubmatchIndex(text)
++	if m == nil {
++		return text, nil
++	}
++	st := &ttsStyle{}
++	for _, kv := range strings.Fields(text[m[2]:m[3]]) {
++		k, v, ok := strings.Cut(kv, "=")
++		if !ok {
++			continue
++		}
++		switch strings.ToLower(k) {
++		case "emotion":
++			switch v = strings.ToLower(v); v {
++			case "neutral", "good", "evil":
++				st.emotion = v
++			}
++		case "speed":
++			if f, err := strconv.ParseFloat(v, 64); err == nil {
++				f = clampF(f, 0.6, 1.6)
++				st.speed = &f
++			}
++		case "volume":
++			if f, err := strconv.ParseFloat(v, 64); err == nil {
++				f = clampF(f, 0.3, 2.0)
++				st.volume = &f
++			}
++		}
++	}
++	return text[m[1]:], st
++}
++
++func clampF(f, lo, hi float64) float64 {
++	if f < lo {
++		return lo
++	}
++	if f > hi {
++		return hi
++	}
++	return f
++}
++
++func (s *ttsStyle) apply(g *tts.TTtsGenerate) {
++	if s == nil {
++		return
++	}
++	if s.emotion != "" {
++		g.Emotion = new(s.emotion)
++	}
++	if s.speed != nil {
++		g.Speed = new(*s.speed)
++	}
++	if s.volume != nil {
++		g.Volume = new(*s.volume)
++	}
++}
++
++// cleanSpeech готовит текст ответа к синтезу; показываемый текст не меняется.
++func cleanSpeech(text string) string {
++	if !strings.ContainsAny(text, "<*`_#>~[-+") {
++		return text
++	}
++	text = breakRe.ReplaceAllStringFunc(text, func(s string) string {
++		m := breakRe.FindStringSubmatch(s)
++		v, _ := strconv.ParseFloat(m[1], 64)
++		if strings.EqualFold(m[2], "s") || (m[2] == "" && v < 20) {
++			v *= 1000
++		}
++		return " sil<[" + strconv.Itoa(int(clampF(v, 100, 2000))) + "]> "
++	})
++	text = silPlainRe.ReplaceAllString(text, "sil<[$1]>")
++	text = xmlTagRe.ReplaceAllString(text, "")
++	text = linkRe.ReplaceAllString(text, "$1")
++	text = mdLineRe.ReplaceAllString(text, "")
++	text = mdMarkRe.ReplaceAllString(text, "")
++	text = spacesRe.ReplaceAllString(text, " ")
++	return strings.TrimSpace(text)
++}
+diff --git a/internal/bridge/tts_voice_test.go b/internal/bridge/tts_voice_test.go
+new file mode 100644
+index 0000000..f7c0cb2
+--- /dev/null
++++ b/internal/bridge/tts_voice_test.go
+@@ -0,0 +1,119 @@
++package bridge
++
++import (
++	"os"
++	"path/filepath"
++	"testing"
++)
++
++// station-llm fork: QUASAR_TTS_VOICE → TtsGenerate.Voice; пусто = как в upstream.
++func TestNewTtsGenerateVoice(t *testing.T) {
++	t.Setenv("QUASAR_TTS_VOICE", "")
++	old := ttsOverridePath
++	ttsOverridePath = filepath.Join(t.TempDir(), "absent")
++	defer func() { ttsOverridePath = old }()
++	g := newTtsGenerate("привет")
++	if g.Voice != nil || g.GetLang() != "ru-RU" || g.GetFormat() != "audio/opus" || g.GetText() != "привет" {
++		t.Fatalf("default changed: %v", g)
++	}
++	t.Setenv("QUASAR_TTS_VOICE", "  filipp ")
++	g = newTtsGenerate("привет")
++	if g.GetVoice() != "filipp" || g.GetLang() != "ru-RU" || g.GetFormat() != "audio/opus" {
++		t.Fatalf("voice not applied: %v", g)
++	}
++}
++
++// tts.override перекрывает окружение и читается на каждый запрос.
++func TestTtsOverride(t *testing.T) {
++	t.Setenv("QUASAR_TTS_VOICE", "filipp")
++	old := ttsOverridePath
++	ttsOverridePath = filepath.Join(t.TempDir(), "tts.override")
++	defer func() { ttsOverridePath = old }()
++	if err := os.WriteFile(ttsOverridePath, []byte("voice=alena\nemotion=good\nspeed=1.1\nquality=ultra\nbogus=1\nlang=\n"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	g := newTtsGenerate("x")
++	if g.GetVoice() != "alena" || g.GetEmotion() != "good" || g.GetSpeed() != 1.1 || g.GetQuality() != "ultra" || g.GetLang() != "ru-RU" || g.GetFormat() != "audio/opus" {
++		t.Fatalf("override: %v", g)
++	}
++	if err := os.WriteFile(ttsOverridePath, []byte("emotion=evil\n"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	g = newTtsGenerate("x")
++	if g.GetVoice() != "filipp" || g.GetEmotion() != "evil" {
++		t.Fatalf("override second read: %v", g)
++	}
++}
++
++// probe=… в tts.override: список кандидатов, максимум 12, пустые пропускаются.
++func TestReadProbeList(t *testing.T) {
++	p := filepath.Join(t.TempDir(), "tts.override")
++	if got := readProbeList(p); got != nil {
++		t.Fatalf("absent file: %v", got)
++	}
++	if err := os.WriteFile(p, []byte("voice=alena\nprobe= ermil, zahar@good ,,filipp\n"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	got := readProbeList(p)
++	if len(got) != 3 || got[0] != "ermil" || got[1] != "zahar@good" || got[2] != "filipp" {
++		t.Fatalf("probe list: %v", got)
++	}
++}
++
++// tts.cases: JSON-строки, комментарии и мусор пропускаются, дефолтный голос ermil.
++func TestParseTtsCases(t *testing.T) {
++	in := "# коммент\n{\"id\":\"a\",\"text\":\"привет\"}\nне json\n{\"id\":\"b\",\"text\":\"x\",\"voice\":\"zahar\",\"speed\":1.2,\"emotion\":\"good\",\"format\":\"audio/x-pcm;bit=16;rate=16000\"}\n{\"id\":\"c\"}\n"
++	cs := parseTtsCases([]byte(in))
++	if len(cs) != 2 {
++		t.Fatalf("cases: %v", cs)
++	}
++	a, b := cs[0].generate(), cs[1].generate()
++	if a.GetVoice() != "ermil" || a.GetFormat() != "audio/opus" || a.GetLang() != "ru-RU" || a.Speed != nil {
++		t.Fatalf("a: %v", a)
++	}
++	if b.GetVoice() != "zahar" || b.GetSpeed() != 1.2 || b.GetEmotion() != "good" || b.GetFormat() != "audio/x-pcm;bit=16;rate=16000" {
++		t.Fatalf("b: %v", b)
++	}
++}
++
++// Тег стиля [tts …] вырезается, значения ограничиваются; без тега текст не меняется.
++func TestSplitTtsStyle(t *testing.T) {
++	txt, st := splitTtsStyle("[tts emotion=good speed=9 volume=0.1] Привет!")
++	if txt != "Привет!" || st == nil || st.emotion != "good" || *st.speed != 1.6 || *st.volume != 0.3 {
++		t.Fatalf("got %q %+v", txt, st)
++	}
++	txt, st = splitTtsStyle("[tts emotion=zzz]Привет")
++	if txt != "Привет" || st == nil || st.emotion != "" {
++		t.Fatalf("bad emotion: %q %+v", txt, st)
++	}
++	txt, st = splitTtsStyle("Привет [tts emotion=good]")
++	if st != nil || txt != "Привет [tts emotion=good]" {
++		t.Fatalf("mid tag: %q %+v", txt, st)
++	}
++	g := newTtsGenerate("x")
++	(*ttsStyle)(nil).apply(g)
++	_, st = splitTtsStyle("[tts emotion=evil speed=1.2]a")
++	st.apply(g)
++	if g.GetEmotion() != "evil" || g.GetSpeed() != 1.2 {
++		t.Fatalf("apply: %v", g)
++	}
++}
++
++func TestCleanSpeech(t *testing.T) {
++	cases := map[string]string{
++		"Привет, Ярослав.":                                     "Привет, Ярослав.",
++		`<speak>Раз<break time="500ms"/>два</speak>`:           "Раз sil<[500]> два",
++		`Раз<break time="1s"/>два`:                             "Раз sil<[1000]> два",
++		"**Привет**, `код` [ссылка](http://x.y)":               "Привет, код ссылка",
++		"- пункт\n- ещё":                                       "пункт\nещё",
++		"Раз sil<800> два":                                     "Раз sil<[800]> два",
++		"В двери висит з+амок":                                 "В двери висит з+амок",
++		"a < b и c > d":                                        "a < b и c > d",
++		"<speak><prosody rate=\"slow\">Тихо</prosody></speak>": "Тихо",
++	}
++	for in, want := range cases {
++		if got := cleanSpeech(in); got != want {
++			t.Errorf("cleanSpeech(%q) = %q, want %q", in, got, want)
++		}
++	}
++}

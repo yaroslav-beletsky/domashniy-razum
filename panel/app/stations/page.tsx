@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Plus, RefreshCw } from "lucide-react";
+import { Loader2, Plus, RefreshCw, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { StationView } from "@/lib/stationView";
 import { Button } from "@/components/ui/button";
@@ -180,6 +181,11 @@ export default function StationsPage() {
           </span>
         )}
         <div className="ml-auto flex items-center gap-2">
+          <Button variant="ghost" className="h-11 gap-1.5 px-3 text-zinc-300 sm:h-9" asChild>
+            <Link href="/add-station">
+              <Wand2 className="size-4" /> <span className="hidden sm:inline">Мастер настройки</span>
+            </Link>
+          </Button>
           {stations && stations.length > 0 && (
             <Button variant="ghost" className="h-11 gap-1.5 px-3 text-zinc-300 sm:h-9" onClick={() => setAddOpen(true)}>
               <Plus className="size-4" /> <span className="hidden sm:inline">Добавить колонку</span>

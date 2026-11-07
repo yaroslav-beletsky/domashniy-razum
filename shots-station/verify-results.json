@@ -1,0 +1,107 @@
+[
+  {
+    "page": "home",
+    "tag": "desktop",
+    "http": 200,
+    "shot": "/Users/yaroslav/Documents/home/station-llm/shots-station/desktop-home.png",
+    "consoleErrors": []
+  },
+  {
+    "page": "stations",
+    "tag": "desktop",
+    "http": 200,
+    "shot": "/Users/yaroslav/Documents/home/station-llm/shots-station/desktop-stations.png",
+    "consoleErrors": []
+  },
+  {
+    "page": "station-detail",
+    "tag": "desktop",
+    "http": 200,
+    "shot": "/Users/yaroslav/Documents/home/station-llm/shots-station/desktop-station-detail.png",
+    "consoleErrors": []
+  },
+  {
+    "page": "add-station",
+    "tag": "desktop",
+    "http": 200,
+    "shot": "/Users/yaroslav/Documents/home/station-llm/shots-station/desktop-add-station.png",
+    "consoleErrors": []
+  },
+  {
+    "page": "voice",
+    "tag": "desktop",
+    "http": 200,
+    "shot": "/Users/yaroslav/Documents/home/station-llm/shots-station/desktop-voice.png",
+    "consoleErrors": []
+  },
+  {
+    "page": "models",
+    "tag": "desktop",
+    "http": 200,
+    "shot": "/Users/yaroslav/Documents/home/station-llm/shots-station/desktop-models.png",
+    "consoleErrors": []
+  },
+  {
+    "page": "logs",
+    "tag": "desktop",
+    "http": 200,
+    "shot": "/Users/yaroslav/Documents/home/station-llm/shots-station/desktop-logs.png",
+    "consoleErrors": []
+  },
+  {
+    "page": "home",
+    "tag": "mobile",
+    "http": 200,
+    "shot": "/Users/yaroslav/Documents/home/station-llm/shots-station/mobile-home.png",
+    "consoleErrors": []
+  },
+  {
+    "page": "stations",
+    "tag": "mobile",
+    "http": 200,
+    "shot": "/Users/yaroslav/Documents/home/station-llm/shots-station/mobile-stations.png",
+    "consoleErrors": []
+  },
+  {
+    "page": "station-detail",
+    "tag": "mobile",
+    "http": 200,
+    "shot": "/Users/yaroslav/Documents/home/station-llm/shots-station/mobile-station-detail.png",
+    "consoleErrors": []
+  },
+  {
+    "page": "add-station",
+    "tag": "mobile",
+    "http": 200,
+    "shot": "/Users/yaroslav/Documents/home/station-llm/shots-station/mobile-add-station.png",
+    "consoleErrors": []
+  },
+  {
+    "page": "voice",
+    "tag": "mobile",
+    "http": 200,
+    "shot": "/Users/yaroslav/Documents/home/station-llm/shots-station/mobile-voice.png",
+    "consoleErrors": []
+  },
+  {
+    "page": "models",
+    "tag": "mobile",
+    "http": 200,
+    "shot": "/Users/yaroslav/Documents/home/station-llm/shots-station/mobile-models.png",
+    "consoleErrors": []
+  },
+  {
+    "page": "logs",
+    "tag": "mobile",
+    "http": 200,
+    "shot": "/Users/yaroslav/Documents/home/station-llm/shots-station/mobile-logs.png",
+    "consoleErrors": []
+  },
+  {
+    "page": "voice-block",
+    "tag": "check",
+    "desktopVisible": true,
+    "mobileVisible": true,
+    "text": "ГОЛОС\n\nзагрузка…"
+  }
+]

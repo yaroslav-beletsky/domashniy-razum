@@ -86,7 +86,7 @@ export function AgentBind({
 
   return (
     <div className="grid min-w-0 gap-1.5 sm:col-span-2">
-      <Label className="text-xs text-zinc-500">Агент (agent-service)</Label>
+      <Label className="text-xs text-zinc-500">Агент</Label>
       <div className="flex flex-wrap items-center gap-2">
         {bound ? (
           <>
@@ -122,9 +122,6 @@ export function AgentBind({
           </>
         )}
       </div>
-      {bound && choices.length > 0 && (
-        <p className="text-xs text-zinc-500">Чтобы сменить агента, выберите другого на его странице или сначала отключите.</p>
-      )}
       {progress && (
         <p role="status" className="font-mono text-[11px] text-zinc-400">
           {progress}

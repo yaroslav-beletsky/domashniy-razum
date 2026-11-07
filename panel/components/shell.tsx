@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Activity, AudioLines, Bot, Boxes, Gauge, KeyRound, Lock, ScrollText, Speaker } from "lucide-react";
+import { Activity, AudioLines, Bot, Boxes, Gauge, KeyRound, Lock, ScrollText, Speaker, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 
@@ -13,6 +13,7 @@ const NAV = [
   { href: "/models", label: "Модели", icon: Boxes },
   { href: "/voice", label: "Голос", icon: AudioLines },
   { href: "/stations", label: "Станции", icon: Speaker },
+  { href: "/add-station", label: "Мастер", icon: Wand2 },
   { href: "/logs", label: "Логи", icon: ScrollText },
 ];
 

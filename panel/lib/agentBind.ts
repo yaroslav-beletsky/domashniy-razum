@@ -51,6 +51,19 @@ export async function bindAgent(stationId: number, agentId: number | null) {
   return agentFetch(`/stations/${stationId}/agent`, { method: "PUT", body: { agent_id: agentId } });
 }
 
+/** Отзыв ключа колонки (key_hash → NULL). Лучше-старание: вызывается после успешной отвязки, ошибка не откатывает её. */
+export async function revokeKey(stationId: number): Promise<{ ok: boolean; error?: string }> {
+  const r = await agentFetch(`/stations/${stationId}/key`, { method: "DELETE", timeoutMs: 5000 });
+  return r.ok ? { ok: true } : { ok: false, error: r.error };
+}
+
+/** Снять привязку колонки в agent-service и отозвать её ключ (отзыв не критичен: ошибка только в результат). */
+export async function releaseStation(stationId: number): Promise<{ unbound: boolean; revoked: boolean; error?: string }> {
+  const u = await bindAgent(stationId, null);
+  const k = await revokeKey(stationId);
+  return { unbound: u.ok, revoked: k.ok, error: k.ok ? undefined : k.error };
+}
+
 /** Новый ключ колонки (в ответе один раз; дальше только хэш в сервисе). */
 export async function mintKey(stationId: number): Promise<{ key?: string; error?: string }> {
   const r = await agentFetch<{ key?: string }>(`/stations/${stationId}/key`, { method: "POST" });
