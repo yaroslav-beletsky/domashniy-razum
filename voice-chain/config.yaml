@@ -1,0 +1,44 @@
+# Belch Voice в режиме станции: STT/TTS на телефоне SM-G780G (adb),
+# оркестратор — домашний LiteLLM на Mac mini.
+
+server:
+  bind_host: "0.0.0.0"
+  bind_port: 10700        # Wyoming (не используется в web-режиме, но валиден)
+  metrics_port: 10701
+  mdns_enabled: false
+
+stt:
+  engine: "gigaam-phone"
+  language: "ru"
+  vad:
+    enabled: false
+  validation:
+    min_words: 1
+    allowed_languages: ["ru", "en"]
+
+tts:
+  engine: "piper-phone"
+  voice: "ru_RU-irina-medium"
+  speed: 1.0
+  sample_rate_out: 22050
+
+orchestrator:
+  type: "openai_compat"
+  openai_compat:
+    base_url: "http://192.168.88.207:4000/v1"
+    model: "op-glm-5.3-flash"
+    api_key_env: "LITELLM_API_KEY"
+    timeout_connect_seconds: 3
+    timeout_first_byte_seconds: 10
+    timeout_idle_chunk_seconds: 15
+    timeout_total_seconds: 60
+    system_prompt: |
+      Ты — голосовой ассистент в доме. Отвечай устно: короткими связными фразами,
+      без markdown, списков и таблиц. По-русски, если не просили иначе.
+
+logging:
+  level: "INFO"
+  format: "json"
+  file: "/Users/yaroslav/Documents/home/station-llm/voice-chain/logs/belch-voice.log"
+  rotate_mb: 50
+  rotate_count: 5

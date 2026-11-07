@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ru.yaroslav.station-voice</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/path/to/belch-voice/.venv/bin/python</string>
+        <string>-m</string>
+        <string>belch_voice.web_main</string>
+        <string>--config</string>
+        <string>/path/to/station-llm/voice-chain/config.yaml</string>
+        <string>--port</string>
+        <string>10702</string>
+        <string>--host</string>
+        <string>0.0.0.0</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/path/to/belch-voice</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>LITELLM_API_KEY</key>
+        <string></string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/path/to/station-llm/voice-chain/logs/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/path/to/station-llm/voice-chain/logs/launchd.err.log</string>
+</dict>
+</plist>

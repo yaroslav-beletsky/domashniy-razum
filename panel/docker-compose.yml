@@ -1,0 +1,33 @@
+services:
+  panel:
+    build: .
+    container_name: station-llm-panel
+    # 0.0.0.0 — чтобы работали и LAN (192.168.88.207:3110), и tailscale serve (8445 → 127.0.0.1:3110)
+    ports:
+      - "0.0.0.0:3110:3000"
+    env_file: .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - home # общая сеть LiteLLM: DNS litellm-db для статистики (только чтение)
+    volumes:
+      # adb-ключи хоста (авторизованы на станции) — adb внутри контейнера.
+      # colima шарит ~/Documents — ключи лежат там, а не в ~/.station-llm.
+      - ${HOME}/Documents/home/station-llm/secrets/adb:/home/node/.android
+      # ключ для read-only ssh к логам voice-chain на .23
+      - ${HOME}/Documents/home/station-llm/secrets/ssh:/ssh:ro
+      # mirror лога quasar-bridge (если настроен rsync со станции)
+      - ${HOME}/Documents/home/station-llm/quasar-data:/logs/quasar:ro
+      # локальный fallback логов belch-voice (если сервис живёт на этом хосте)
+      - ${HOME}/Documents/home/belch-voice/logs:/logs/belch-voice:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/status"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+networks:
+  home:
+    external: true

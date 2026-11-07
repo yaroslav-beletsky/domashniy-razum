@@ -1,0 +1,308 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "default_agent": "orchestrator",
+  "agent": {
+    "orchestrator": {
+      "name": "Руководитель",
+      "description": "Руководитель: принимает задачу и сразу раздаёт отделам. Сам код не читает и не пишет. Основной агент проекта.",
+      "mode": "primary",
+      "model": "litellm/cp-self-xai-grok-4.7",
+      "temperature": 0.2,
+      "color": "primary",
+      "prompt": "{file:./.opencode/prompts/_context.md}\n\n{file:./.opencode/prompts/orchestrator.md}",
+      "permission": {
+        "read": "deny",
+        "glob": "deny",
+        "grep": "deny",
+        "lsp": "deny",
+        "webfetch": "deny",
+        "websearch": "deny",
+        "edit": "deny",
+        "bash": "deny",
+        "todowrite": "allow",
+        "question": "allow",
+        "task": {
+          "*": "allow"
+        },
+        "execute": "deny"
+      }
+    },
+    "architect": {
+      "name": "Архитектор",
+      "description": "Архитектор: схема голоса, навык Диалогов или свой сателлит, контракт webhook, маршрут до LiteLLM. Код не пишет.",
+      "mode": "subagent",
+      "model": "litellm/cp-homeae-claude-opus-5-5",
+      "temperature": 0.2,
+      "color": "info",
+      "prompt": "{file:./.opencode/prompts/_context.md}\n\n{file:./.opencode/prompts/architect.md}",
+      "permission": {
+        "edit": {
+          "*": "deny",
+          "docs/**/*.md": "ask",
+          ".opencode/**/*.md": "allow"
+        },
+        "bash": {
+          "*": "deny",
+          "git log*": "allow",
+          "git diff*": "allow",
+          "ls*": "allow",
+          "ssh*": "allow"
+        },
+        "task": {
+          "*": "deny",
+          "explore": "allow"
+        },
+        "execute": "deny"
+      }
+    },
+    "architect-kimi": {
+      "name": "Архитектор Kimi",
+      "description": "Архитектор Kimi: запасной на Kimi 3.1 Pro. Та же роль, если Claude недоступен или нужен второй взгляд.",
+      "mode": "subagent",
+      "model": "litellm/cp-self-kimi-k3.1-pro",
+      "temperature": 0.2,
+      "color": "secondary",
+      "prompt": "{file:./.opencode/prompts/_context.md}\n\n{file:./.opencode/prompts/architect-kimi.md}",
+      "permission": {
+        "edit": {
+          "*": "deny",
+          "docs/**/*.md": "ask",
+          ".opencode/**/*.md": "allow"
+        },
+        "bash": {
+          "*": "deny",
+          "git log*": "allow",
+          "git diff*": "allow",
+          "ls*": "allow",
+          "ssh*": "allow"
+        },
+        "task": {
+          "*": "deny",
+          "explore": "allow"
+        },
+        "execute": "deny"
+      }
+    },
+    "coder": {
+      "name": "Разработчик",
+      "description": "Разработчик: шлюз навыка Алисы, интеграция LiteLLM, правки голосового пайплайна. Основной кодер на Codex GPT-6.1 Sol.",
+      "mode": "all",
+      "model": "litellm/cx-gpt-6.1-sol",
+      "temperature": 0.1,
+      "color": "success",
+      "prompt": "{file:./.opencode/prompts/_context.md}\n\n{file:./.opencode/prompts/coder.md}",
+      "permission": {
+        "edit": "allow",
+        "bash": {
+          "*": "allow",
+          "git push*": "deny",
+          "git commit*": "ask",
+          "git reset*": "ask",
+          "rm -rf*": "ask",
+          "ssh*": "allow"
+        },
+        "task": {
+          "*": "deny",
+          "explore": "allow"
+        },
+        "execute": "deny"
+      }
+    },
+    "coder-glm": {
+      "name": "Разработчик GLM",
+      "description": "Разработчик GLM: запасной на Z.ai GLM 5.3. Если Codex недоступен или нужен второй проход по диффу.",
+      "mode": "all",
+      "model": "litellm/cp-self-zai-glm-5.3",
+      "temperature": 0.1,
+      "color": "secondary",
+      "prompt": "{file:./.opencode/prompts/_context.md}\n\n{file:./.opencode/prompts/coder-glm.md}",
+      "permission": {
+        "edit": "allow",
+        "bash": {
+          "*": "allow",
+          "git push*": "deny",
+          "git commit*": "ask",
+          "git reset*": "ask",
+          "rm -rf*": "ask",
+          "ssh*": "allow"
+        },
+        "task": {
+          "*": "deny",
+          "explore": "allow"
+        },
+        "execute": "deny"
+      }
+    },
+    "coder-kimi": {
+      "name": "Разработчик Kimi",
+      "description": "Разработчик Kimi: второй запасной на Kimi 2.8 Code, особенно длинные файлы.",
+      "mode": "all",
+      "model": "litellm/cp-self-kimi-k2.8-code",
+      "temperature": 0.1,
+      "color": "secondary",
+      "prompt": "{file:./.opencode/prompts/_context.md}\n\n{file:./.opencode/prompts/coder-kimi.md}",
+      "permission": {
+        "edit": "allow",
+        "bash": {
+          "*": "allow",
+          "git push*": "deny",
+          "git commit*": "ask",
+          "git reset*": "ask",
+          "rm -rf*": "ask",
+          "ssh*": "allow"
+        },
+        "task": {
+          "*": "deny",
+          "explore": "allow"
+        },
+        "execute": "deny"
+      }
+    },
+    "devops": {
+      "name": "Девопс",
+      "description": "Девопс: Docker, публичный HTTPS для webhook Диалогов, деплой шлюза рядом с LiteLLM на домашнем Mac mini.",
+      "mode": "all",
+      "model": "litellm/cp-self-xai-grok-4.7-build-fast",
+      "temperature": 0.1,
+      "color": "warning",
+      "prompt": "{file:./.opencode/prompts/_context.md}\n\n{file:./.opencode/prompts/devops.md}",
+      "permission": {
+        "edit": "allow",
+        "bash": {
+          "*": "allow",
+          "git push*": "deny",
+          "git commit*": "ask",
+          "git reset*": "ask",
+          "rm -rf*": "ask",
+          "ssh*": "allow"
+        },
+        "task": {
+          "*": "deny",
+          "explore": "allow"
+        },
+        "execute": "deny"
+      }
+    },
+    "security": {
+      "name": "Аудитор",
+      "description": "Аудитор: секреты webhook, доступ к LiteLLM, логи. Код не правит. Взломом колонок не занимается.",
+      "mode": "subagent",
+      "model": "litellm/cp-self-xai-grok-4.20-0309-reasoning",
+      "temperature": 0.1,
+      "color": "error",
+      "prompt": "{file:./.opencode/prompts/_context.md}\n\n{file:./.opencode/prompts/security.md}",
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "*": "ask",
+          "git diff*": "allow",
+          "git log*": "allow",
+          "rg *": "allow",
+          "ls*": "allow",
+          "ssh*": "allow"
+        },
+        "task": {
+          "*": "deny",
+          "explore": "allow"
+        },
+        "execute": "deny"
+      }
+    },
+    "reverser": {
+      "name": "Реверсер",
+      "description": "Реверсер: ищет обходы нашего webhook и утечки ключей на Venice DeepSeek R1. Прошивку колонок не трогает. Код не правит.",
+      "mode": "all",
+      "model": "litellm/vnc-deepseek-r1",
+      "temperature": 0.15,
+      "color": "error",
+      "prompt": "{file:./.opencode/prompts/_context.md}\n\n{file:./.opencode/prompts/reverser.md}",
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "*": "allow",
+          "git push*": "deny",
+          "git commit*": "ask",
+          "git reset*": "ask",
+          "rm -rf*": "ask",
+          "ssh*": "allow"
+        },
+        "task": {
+          "*": "deny",
+          "explore": "allow"
+        },
+        "execute": "deny"
+      }
+    },
+    "cyber": {
+      "name": "Кибер",
+      "description": "Кибер: универсальный помощник на Venice DeepSeek V4.1 Flash Uncensored. Разбор своих систем и кода.",
+      "mode": "all",
+      "model": "litellm/vnc-cyber-deepseek-v4-1-flash-uncensored",
+      "temperature": 0.2,
+      "color": "warning",
+      "prompt": "{file:./.opencode/prompts/_context.md}\n\n{file:./.opencode/prompts/cyber.md}",
+      "permission": {
+        "edit": "allow",
+        "bash": {
+          "*": "allow",
+          "git push*": "deny",
+          "git commit*": "ask",
+          "git reset*": "ask",
+          "rm -rf*": "ask",
+          "ssh*": "allow"
+        },
+        "task": {
+          "*": "deny",
+          "explore": "allow"
+        },
+        "execute": "deny"
+      }
+    },
+    "cyber-qwen": {
+      "name": "Кибер Qwen",
+      "description": "Кибер Qwen: второй универсальный помощник на Venice Qwen 3.6 Plus Uncensored. Другой взгляд или если Кибер недоступен.",
+      "mode": "all",
+      "model": "litellm/vnc-cyber-qwen-3-6-plus",
+      "temperature": 0.2,
+      "color": "secondary",
+      "prompt": "{file:./.opencode/prompts/_context.md}\n\n{file:./.opencode/prompts/cyber-qwen.md}",
+      "permission": {
+        "edit": "allow",
+        "bash": {
+          "*": "allow",
+          "git push*": "deny",
+          "git commit*": "ask",
+          "git reset*": "ask",
+          "rm -rf*": "ask",
+          "ssh*": "allow"
+        },
+        "task": {
+          "*": "deny",
+          "explore": "allow"
+        },
+        "execute": "deny"
+      }
+    },
+    "design": {
+      "name": "Дизайнер",
+      "description": "Дизайнер: голосовой UX, русские фразы активации, короткие ответы под озвучку, личность вместо Алисы.",
+      "mode": "subagent",
+      "model": "litellm/ag-gemini-4-argon",
+      "temperature": 0.4,
+      "color": "accent",
+      "prompt": "{file:./.opencode/prompts/_context.md}\n\n{file:./.opencode/prompts/design.md}",
+      "permission": {
+        "edit": "ask",
+        "bash": "deny",
+        "task": {
+          "*": "deny",
+          "explore": "allow"
+        },
+        "execute": "deny"
+      }
+    }
+  },
+  "permission": {
+    "execute": "deny"
+  }
+}

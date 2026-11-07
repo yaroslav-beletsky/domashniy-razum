@@ -1,0 +1,230 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" fill="none" role="img" aria-labelledby="headerTitle headerDesc">
+  <title id="headerTitle">Домашний разум — Твоя Алиса, но теперь под твоим контролем</title>
+  <desc id="headerDesc">Баннер проекта Домашний разум: умная колонка со светящимся изумрудно-бирюзовым кольцом под управлением локального голосового стека, агентов MCP и LiteLLM.</desc>
+
+  <defs>
+    <!-- Основной фон -->
+    <linearGradient id="bgBase" x1="0" y1="0" x2="1200" y2="300" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#09090b"/>
+      <stop offset="55%" stop-color="#0c0c10"/>
+      <stop offset="100%" stop-color="#090d11"/>
+    </linearGradient>
+
+    <!-- Мягкое свечение вокруг колонки -->
+    <radialGradient id="speakerAmbient" cx="965" cy="128" r="250" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#10b981" stop-opacity="0.24"/>
+      <stop offset="42%" stop-color="#06b6d4" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#09090b" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Дополнительный тёплый отсвет слева -->
+    <radialGradient id="leftGlow" cx="180" cy="40" r="320" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#10b981" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#09090b" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Сетка инженерного пульта -->
+    <pattern id="techGrid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#27272a" stroke-width="0.7" stroke-opacity="0.45"/>
+    </pattern>
+
+    <radialGradient id="gridMaskGrad" cx="620" cy="150" r="560" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.75"/>
+      <stop offset="70%" stop-color="#ffffff" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <mask id="gridMask">
+      <rect width="1200" height="300" fill="url(#gridMaskGrad)"/>
+    </mask>
+
+    <!-- Текстура акустической ткани колонки -->
+    <pattern id="fabricMesh" width="6" height="6" patternUnits="userSpaceOnUse">
+      <circle cx="1.5" cy="1.5" r="0.85" fill="#09090b" fill-opacity="0.55"/>
+      <circle cx="4.5" cy="4.5" r="0.85" fill="#09090b" fill-opacity="0.55"/>
+      <circle cx="4.5" cy="1.5" r="0.6" fill="#52525b" fill-opacity="0.16"/>
+    </pattern>
+
+    <!-- Цилиндрический объём корпуса -->
+    <linearGradient id="cylinderBody" x1="891" y1="150" x2="1039" y2="150" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#141418"/>
+      <stop offset="16%" stop-color="#27272f"/>
+      <stop offset="42%" stop-color="#1f1f26"/>
+      <stop offset="78%" stop-color="#15151a"/>
+      <stop offset="93%" stop-color="#22222a"/>
+      <stop offset="100%" stop-color="#101014"/>
+    </linearGradient>
+
+    <!-- Отсвет от светящегося кольца вниз по корпусу -->
+    <linearGradient id="ringSpill" x1="965" y1="82" x2="965" y2="165" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#34d399" stop-opacity="0.28"/>
+      <stop offset="35%" stop-color="#22d3ee" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#09090b" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Градиент светящегося кольца -->
+    <linearGradient id="ledRing" x1="891" y1="82" x2="1039" y2="96" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="35%" stop-color="#6ee7b7"/>
+      <stop offset="68%" stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#10b981"/>
+    </linearGradient>
+
+    <!-- Верхняя матовая крышка колонки -->
+    <linearGradient id="topPlate" x1="910" y1="74" x2="1020" y2="98" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1f1f25"/>
+      <stop offset="100%" stop-color="#111115"/>
+    </linearGradient>
+
+    <!-- Тень под колонкой -->
+    <radialGradient id="floorShadow" cx="965" cy="244" r="96" gradientTransform="translate(0 183) scale(1 0.25)" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#000000" stop-opacity="0.85"/>
+      <stop offset="65%" stop-color="#000000" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Градиент заголовка -->
+    <linearGradient id="titleGrad" x1="64" y1="95" x2="560" y2="150" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#fafafa"/>
+      <stop offset="70%" stop-color="#f4f4f5"/>
+      <stop offset="100%" stop-color="#a1a1aa"/>
+    </linearGradient>
+
+    <!-- Градиент линии связи -->
+    <linearGradient id="linkTrace" x1="650" y1="236" x2="885" y2="195" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#27272a" stop-opacity="0"/>
+      <stop offset="45%" stop-color="#10b981" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#22d3ee" stop-opacity="0.6"/>
+    </linearGradient>
+
+    <!-- Фильтр мягкого свечения кольца -->
+    <filter id="ringGlow" x="-60%" y="-120%" width="220%" height="340%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Контур корпуса для наложения текстуры ткани -->
+    <clipPath id="speakerBodyClip">
+      <path d="M 891 86 L 891 226 A 74 18 0 0 0 1039 226 L 1039 86 Z"/>
+    </clipPath>
+
+    <!-- Скругление всего баннера -->
+    <clipPath id="bannerClip">
+      <rect width="1200" height="300" rx="20"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#bannerClip)">
+    <!-- Фон и сетка -->
+    <rect width="1200" height="300" fill="url(#bgBase)"/>
+    <rect width="1200" height="300" fill="url(#techGrid)" mask="url(#gridMask)"/>
+    <rect width="1200" height="300" fill="url(#leftGlow)"/>
+    <rect width="1200" height="300" fill="url(#speakerAmbient)"/>
+
+    <!-- Тонкая линия связи от локального стека к колонке -->
+    <path d="M 656 237 C 745 237, 790 198, 882 192" stroke="url(#linkTrace)" stroke-width="1.5" stroke-dasharray="4 5"/>
+    <circle cx="882" cy="192" r="2.5" fill="#22d3ee" fill-opacity="0.8"/>
+
+    <!-- Звуковые волны вокруг верхней части колонки -->
+    <path d="M 862 114 C 847 98, 847 74, 862 58" stroke="#34d399" stroke-width="2" stroke-linecap="round" stroke-opacity="0.48"/>
+    <path d="M 844 126 C 823 102, 823 70, 844 46" stroke="#22d3ee" stroke-width="1.6" stroke-linecap="round" stroke-opacity="0.26"/>
+    <path d="M 826 138 C 799 106, 799 66, 826 34" stroke="#34d399" stroke-width="1.2" stroke-linecap="round" stroke-opacity="0.12"/>
+
+    <path d="M 1068 114 C 1083 98, 1083 74, 1068 58" stroke="#22d3ee" stroke-width="2" stroke-linecap="round" stroke-opacity="0.48"/>
+    <path d="M 1086 126 C 1107 102, 1107 70, 1086 46" stroke="#34d399" stroke-width="1.6" stroke-linecap="round" stroke-opacity="0.26"/>
+    <path d="M 1104 138 C 1131 106, 1131 66, 1104 34" stroke="#22d3ee" stroke-width="1.2" stroke-linecap="round" stroke-opacity="0.12"/>
+
+    <!-- Тень на поверхности -->
+    <ellipse cx="965" cy="244" rx="96" ry="22" fill="url(#floorShadow)"/>
+
+    <!-- Нижняя прорезиненная ножка колонки -->
+    <path d="M 897 227 A 68 16 0 0 0 1033 227 L 1033 232 A 68 16 0 0 1 897 232 Z" fill="#09090b" stroke="#27272a" stroke-width="0.8"/>
+
+    <!-- Основной цилиндр колонки -->
+    <g clip-path="url(#speakerBodyClip)">
+      <rect x="891" y="84" width="148" height="164" fill="url(#cylinderBody)"/>
+      <rect x="891" y="84" width="148" height="164" fill="url(#fabricMesh)"/>
+      <rect x="891" y="84" width="148" height="90" fill="url(#ringSpill)"/>
+
+      <!-- Лёгкие дуги акустического плетения для объёма -->
+      <ellipse cx="965" cy="126" rx="74" ry="16" stroke="#ffffff" stroke-opacity="0.03" stroke-width="1"/>
+      <ellipse cx="965" cy="162" rx="74" ry="16.5" stroke="#ffffff" stroke-opacity="0.03" stroke-width="1"/>
+      <ellipse cx="965" cy="198" rx="74" ry="17" stroke="#ffffff" stroke-opacity="0.03" stroke-width="1"/>
+    </g>
+
+    <!-- Боковые грани цилиндра (деликатный контровой блик) -->
+    <path d="M 891 86 L 891 226 A 74 18 0 0 0 1039 226 L 1039 86" stroke="#3f3f46" stroke-opacity="0.55" stroke-width="1.1"/>
+
+    <!-- Верхний обод и светящееся кольцо -->
+    <ellipse cx="965" cy="86" rx="74" ry="18" fill="#141418" stroke="#27272a" stroke-width="1"/>
+
+    <!-- Свечение LED-кольца -->
+    <g filter="url(#ringGlow)">
+      <ellipse cx="965" cy="86" rx="68.5" ry="15.8" stroke="url(#ledRing)" stroke-width="4.2"/>
+    </g>
+    <!-- Яркая сердцевина LED-кольца -->
+    <ellipse cx="965" cy="86" rx="68.5" ry="15.8" stroke="#ecfdf5" stroke-opacity="0.75" stroke-width="1.2"/>
+
+    <!-- Внутренняя сенсорная площадка сверху -->
+    <ellipse cx="965" cy="86" rx="58" ry="12.5" fill="url(#topPlate)" stroke="#27272a" stroke-width="0.8"/>
+
+    <!-- Микрофонные отверстия и центральный индикатор локального режима -->
+    <circle cx="942" cy="86" r="1.2" fill="#52525b"/>
+    <circle cx="988" cy="86" r="1.2" fill="#52525b"/>
+    <circle cx="965" cy="80.5" r="1.1" fill="#52525b"/>
+    <circle cx="965" cy="91.5" r="1.1" fill="#52525b"/>
+    <circle cx="965" cy="86" r="2.6" fill="#34d399" fill-opacity="0.9"/>
+
+    <!-- Мини-плашка статуса над колонкой -->
+    <g transform="translate(907, 32)">
+      <rect width="116" height="22" rx="11" fill="#121216" fill-opacity="0.9" stroke="#27272a" stroke-width="1"/>
+      <circle cx="14" cy="11" r="3.2" fill="#34d399"/>
+      <text x="24" y="14.5" fill="#d4d4d8" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace" font-size="10.5" font-weight="600" letter-spacing="0.4">LOCAL · ONLINE</text>
+    </g>
+
+    <!-- ЛЕВАЯ КОЛОНКА: ТИПОГРАФИКА И СТЕК -->
+    <!-- Верхний бейдж репозитория -->
+    <g transform="translate(64, 46)">
+      <rect width="318" height="28" rx="14" fill="#121217" stroke="#27272a" stroke-width="1"/>
+      <circle cx="16" cy="14" r="3.8" fill="#10b981"/>
+      <circle cx="16" cy="14" r="7" fill="#10b981" fill-opacity="0.2"/>
+      <text x="30" y="18" fill="#a1a1aa" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace" font-size="11.5" font-weight="500" letter-spacing="0.9">DOMASHNIY-RAZUM · SELF-HOSTED VOICE</text>
+    </g>
+
+    <!-- Заголовок -->
+    <text x="62" y="138" fill="url(#titleGrad)" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="54" font-weight="800" letter-spacing="-1">Домашний разум</text>
+
+    <!-- Тэглайн -->
+    <text x="64" y="180" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="21" font-weight="400">
+      <tspan fill="#a1a1aa">Твоя Алиса — но теперь </tspan><tspan fill="#6ee7b7" font-weight="600">под твоим контролем</tspan>
+    </text>
+
+    <!-- Пилюли возможностей (в стиле инженерной панели) -->
+    <g transform="translate(64, 222)" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace" font-size="12" font-weight="500">
+      <!-- Pill 1 -->
+      <rect x="0" y="0" width="114" height="30" rx="8" fill="#131318" stroke="#27272a" stroke-width="1"/>
+      <circle cx="15" cy="15" r="3" fill="#34d399"/>
+      <text x="26" y="19" fill="#e4e4e7">LiteLLM</text>
+
+      <!-- Pill 2 -->
+      <rect x="124" y="0" width="152" height="30" rx="8" fill="#131318" stroke="#27272a" stroke-width="1"/>
+      <circle cx="139" cy="15" r="3" fill="#22d3ee"/>
+      <text x="150" y="19" fill="#e4e4e7">Local STT / TTS</text>
+
+      <!-- Pill 3 -->
+      <rect x="286" y="0" width="144" height="30" rx="8" fill="#131318" stroke="#27272a" stroke-width="1"/>
+      <circle cx="301" cy="15" r="3" fill="#34d399"/>
+      <text x="312" y="19" fill="#e4e4e7">Агенты · MCP</text>
+
+      <!-- Pill 4 -->
+      <rect x="440" y="0" width="138" height="30" rx="8" fill="#131318" stroke="#27272a" stroke-width="1"/>
+      <circle cx="455" cy="15" r="3" fill="#22d3ee"/>
+      <text x="466" y="19" fill="#e4e4e7">Веб-панель</text>
+    </g>
+  </g>
+
+  <!-- Внешняя рамка баннера -->
+  <rect x="0.75" y="0.75" width="1198.5" height="298.5" rx="19.25" stroke="#27272a" stroke-width="1.5"/>
+</svg>

@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none" role="img" aria-labelledby="logoTitle">
+  <title id="logoTitle">Домашний разум — логотип</title>
+
+  <defs>
+    <linearGradient id="logoBg" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#111116"/>
+      <stop offset="100%" stop-color="#09090b"/>
+    </linearGradient>
+
+    <radialGradient id="logoGlow" cx="64" cy="40" r="54" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#10b981" stop-opacity="0.32"/>
+      <stop offset="55%" stop-color="#06b6d4" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#09090b" stop-opacity="0"/>
+    </radialGradient>
+
+    <linearGradient id="logoBody" x1="34" y1="68" x2="94" y2="68" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#16161c"/>
+      <stop offset="22%" stop-color="#2a2a33"/>
+      <stop offset="55%" stop-color="#202028"/>
+      <stop offset="85%" stop-color="#15151b"/>
+      <stop offset="100%" stop-color="#1f1f27"/>
+    </linearGradient>
+
+    <linearGradient id="logoSpill" x1="64" y1="42" x2="64" y2="82" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#34d399" stop-opacity="0.30"/>
+      <stop offset="100%" stop-color="#09090b" stop-opacity="0"/>
+    </linearGradient>
+
+    <linearGradient id="logoRing" x1="34" y1="40" x2="94" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="45%" stop-color="#6ee7b7"/>
+      <stop offset="78%" stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#10b981"/>
+    </linearGradient>
+
+    <filter id="logoRingBlur" x="-50%" y="-100%" width="200%" height="300%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <clipPath id="logoCylinderClip">
+      <path d="M 34 43 L 34 92 A 30 8.5 0 0 0 94 92 L 94 43 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- Скруглённая подложка -->
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#logoBg)" stroke="#27272a" stroke-width="2"/>
+  <rect x="5" y="5" width="118" height="118" rx="27" fill="url(#logoGlow)"/>
+
+  <!-- Звуковые волны по бокам -->
+  <path d="M 24 55 C 18 48, 18 38, 24 31" stroke="#34d399" stroke-width="2.2" stroke-linecap="round" stroke-opacity="0.55"/>
+  <path d="M 104 55 C 110 48, 110 38, 104 31" stroke="#22d3ee" stroke-width="2.2" stroke-linecap="round" stroke-opacity="0.55"/>
+
+  <!-- Тень под цилиндром -->
+  <ellipse cx="64" cy="99" rx="34" ry="7" fill="#000000" fill-opacity="0.55"/>
+
+  <!-- Корпус колонки -->
+  <g clip-path="url(#logoCylinderClip)">
+    <rect x="34" y="42" width="60" height="60" fill="url(#logoBody)"/>
+    <rect x="34" y="42" width="60" height="42" fill="url(#logoSpill)"/>
+    <ellipse cx="64" cy="62" rx="30" ry="7.5" stroke="#ffffff" stroke-opacity="0.05" stroke-width="1"/>
+    <ellipse cx="64" cy="78" rx="30" ry="8" stroke="#ffffff" stroke-opacity="0.05" stroke-width="1"/>
+  </g>
+
+  <path d="M 34 43 L 34 92 A 30 8.5 0 0 0 94 92 L 94 43" stroke="#3f3f46" stroke-opacity="0.65" stroke-width="1.2"/>
+
+  <!-- Верхний обод и светящееся кольцо -->
+  <ellipse cx="64" cy="43" rx="30" ry="8.5" fill="#141419" stroke="#27272a" stroke-width="1"/>
+  <g filter="url(#logoRingBlur)">
+    <ellipse cx="64" cy="43" rx="27.2" ry="7.2" stroke="url(#logoRing)" stroke-width="3.2"/>
+  </g>
+  <ellipse cx="64" cy="43" rx="27.2" ry="7.2" stroke="#ecfdf5" stroke-opacity="0.8" stroke-width="0.9"/>
+
+  <!-- Внутренняя крышка и точка активности -->
+  <ellipse cx="64" cy="43" rx="21.5" ry="5.2" fill="#141418"/>
+  <circle cx="64" cy="43" r="2" fill="#34d399"/>
+</svg>

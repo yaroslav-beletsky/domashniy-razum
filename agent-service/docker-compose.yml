@@ -1,0 +1,31 @@
+services:
+  agent-service:
+    build: .
+    container_name: station-llm-agent
+    ports:
+      - "4100:4100"
+    networks:
+      - home
+    env_file:
+      - path: ./secrets/agent/mcp.env
+        required: false
+    environment:
+      LITELLM_BASE_URL: http://litellm:4000/v1
+      MCP_STDIO_ALLOW: ${MCP_STDIO_ALLOW:-}
+    volumes:
+      - ./secrets/agent:/app/secrets/agent
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://localhost:4100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  home:
+    external: true
