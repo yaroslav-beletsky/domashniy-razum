@@ -15,8 +15,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ModelPicker } from "@/components/stations/model-picker";
 import { StationLog, type LocalLine } from "@/components/stations/station-log";
 import { StationSvg, ringTone } from "@/components/stations/station-svg";
-import { StatusBadge } from "@/components/stations/status-badge";
+import { ModeBadge, StatusBadge } from "@/components/stations/status-badge";
 import { pushRecent } from "@/lib/modelNames";
+import { MODE_INFO, PANEL_MODES, normalizeMode, type PanelMode } from "@/lib/modes";
+
+const MODE_ACTIVE: Record<PanelMode, string> = {
+  alice: "border-sky-800 bg-sky-950/40 text-sky-100",
+  hybrid: "border-violet-800 bg-violet-950/40 text-violet-100",
+  llm: "border-emerald-800 bg-emerald-950/40 text-emerald-100",
+};
 
 interface Step {
   id: string;
@@ -239,7 +246,7 @@ export default function StationDetailPage() {
     setOp(change);
     setOpError(null);
     setStep(null);
-    const what = [change.mode && `режим → ${change.mode}`, change.model && `модель → ${change.model}`].filter(Boolean).join(", ");
+    const what = [change.mode && `режим → ${MODE_INFO[change.mode as PanelMode]?.label ?? change.mode}`, change.model && `модель → ${change.model}`].filter(Boolean).join(", ");
     addLocal("info", `[панель] ${what}: запускаем`);
     if (change.model) pushRecent(change.model);
 
@@ -329,7 +336,7 @@ export default function StationDetailPage() {
   const serverBusy = s.state === "applying" && !op; // операция запущена с другой вкладки / до перезагрузки
   const busy = Boolean(op) || serverBusy;
   const shownState = busy ? "applying" : s.state;
-  const shownMode = op?.mode ?? s.mode ?? (offline ? s.last?.mode : undefined);
+  const shownMode = normalizeMode(op?.mode ?? s.mode ?? (offline ? s.last?.mode : undefined));
   const shownModel = op?.model ?? s.model ?? (offline ? s.last?.model : undefined);
   const disabled = offline || busy;
   const meta = [
@@ -389,6 +396,7 @@ export default function StationDetailPage() {
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <h1 className="min-w-0 truncate text-xl font-medium text-zinc-50">{s.name}</h1>
             <StatusBadge state={shownState} />
+            <ModeBadge mode={shownMode} muted={offline} />
           </div>
           <p className="font-mono text-[11px] leading-relaxed break-words text-zinc-500">{meta.join(" · ")}</p>
         </div>
@@ -408,11 +416,11 @@ export default function StationDetailPage() {
       )}
 
       {/* управление */}
-      <section className="grid gap-4 rounded-xl border border-zinc-800 bg-zinc-950/60 p-4 sm:grid-cols-[auto_1fr] sm:items-end sm:gap-6">
-        <div className="grid gap-1.5">
+      <section className="grid gap-4 rounded-xl border border-zinc-800 bg-zinc-950/60 p-4 sm:grid-cols-2 sm:gap-x-6">
+        <div className="grid gap-1.5 sm:col-span-2">
           <Label className="text-xs text-zinc-500">Режим</Label>
-          <div role="radiogroup" aria-label="Режим" className="grid grid-cols-2 gap-1 rounded-lg border border-zinc-800 p-1 sm:w-56">
-            {(["observe", "hybrid"] as const).map((m) => {
+          <div role="radiogroup" aria-label="Режим" className="grid gap-2 sm:grid-cols-3">
+            {PANEL_MODES.map((m) => {
               const active = shownMode === m;
               const pending = op?.mode === m;
               return (
@@ -424,25 +432,24 @@ export default function StationDetailPage() {
                   disabled={disabled}
                   onClick={() => !active && apply({ mode: m })}
                   className={cn(
-                    "flex h-11 items-center justify-center gap-1.5 rounded-md font-mono text-xs transition-colors sm:h-9",
-                    active
-                      ? m === "hybrid"
-                        ? "bg-violet-950/60 text-violet-200 ring-1 ring-violet-800"
-                        : "bg-emerald-950/50 text-emerald-200 ring-1 ring-emerald-800"
-                      : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200",
+                    "flex min-h-[44px] flex-col items-start gap-0.5 rounded-lg border px-3 py-2 text-left transition-colors",
+                    active ? MODE_ACTIVE[m] : "border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:bg-zinc-900",
                     disabled && "cursor-not-allowed opacity-60 hover:bg-transparent",
                     pending && "animate-pulse",
                   )}
                 >
-                  {pending && <Loader2 className="size-3 animate-spin" />}
-                  {m === "observe" ? "Observe" : "Hybrid"}
+                  <span className="flex items-center gap-1.5 text-sm font-medium">
+                    {pending && <Loader2 className="size-3 animate-spin" />}
+                    {MODE_INFO[m].label}
+                  </span>
+                  <span className={cn("text-xs leading-snug", active ? "opacity-80" : "text-zinc-500")}>{MODE_INFO[m].hint}</span>
                 </button>
               );
             })}
           </div>
         </div>
 
-        <div className="grid min-w-0 gap-1.5">
+        <div className="grid min-w-0 gap-1.5 sm:col-span-2">
           <Label className="text-xs text-zinc-500">Активная модель</Label>
           <ModelPicker
             models={models}

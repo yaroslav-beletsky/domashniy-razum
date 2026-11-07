@@ -3,16 +3,20 @@
 import { useId } from "react";
 import { cn } from "@/lib/utils";
 
-export type RingTone = "llm" | "hybrid" | "busy" | "off";
+import { normalizeMode } from "@/lib/modes";
+
+export type RingTone = "alice" | "llm" | "hybrid" | "busy" | "off";
 
 /** Состояние колонки → тон светового кольца. */
 export function ringTone(state: string, mode?: string): RingTone {
   if (state === "offline") return "off";
   if (state === "applying" || state === "bridge-down") return "busy";
-  return mode === "hybrid" ? "hybrid" : "llm";
+  const pm = normalizeMode(mode);
+  return pm === "alice" ? "alice" : pm === "hybrid" ? "hybrid" : "llm";
 }
 
 const TONE: Record<RingTone, { stroke: string; glow: string; pulse: boolean }> = {
+  alice: { stroke: "#38bdf8", glow: "rgba(56,189,248,0.75)", pulse: false },
   llm: { stroke: "#34d399", glow: "rgba(52,211,153,0.75)", pulse: false },
   hybrid: { stroke: "#a78bfa", glow: "rgba(167,139,250,0.75)", pulse: false },
   busy: { stroke: "#fbbf24", glow: "rgba(251,191,36,0.8)", pulse: true },

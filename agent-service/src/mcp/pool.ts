@@ -134,7 +134,7 @@ export async function refreshServer(id: number): Promise<CachedTool[]> {
   const t0 = Date.now();
   try {
     const conn = await ensureConn(server);
-    const res = await conn.client.listTools({ timeout: server.timeout_ms });
+    const res = await conn.client.listTools(undefined, { timeout: server.timeout_ms });
     recordSuccess(id);
     const tools: CachedTool[] = (res.tools ?? []).map((t) => ({
       name: `${server.name}__${t.name}`,
@@ -185,10 +185,10 @@ export async function callTool(
     });
     recordSuccess(serverId);
     const text =
-      (res.content ?? [])
+      (((res as any).content ?? []) as any[])
         .map((c: any) => (c.type === "text" ? c.text : c.type === "resource" ? `[resource ${c.uri}]` : ""))
         .filter(Boolean)
-        .join("\n") || JSON.stringify(res.structuredContent ?? res);
+        .join("\n") || JSON.stringify((res as any).structuredContent ?? res);
     return { ok: !res.isError, ms: Date.now() - t0, text };
   } catch (e) {
     await recordFailure(serverId);

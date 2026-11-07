@@ -1,8 +1,9 @@
-// Смена режима/модели с прогрессом. POST { mode?, model? } → SSE:
+// Смена режима/модели с прогрессом. POST { mode?: "alice"|"hybrid"|"llm", model? } → SSE:
 //   {type:"step", id, label, index, total} … {type:"done", pid, mode, model} | {type:"error", error}
 // Операция идёт на сервере независимо от клиента: обрыв соединения её не прерывает.
 import { NextRequest, NextResponse } from "next/server";
 import { applyBridgeChange } from "@/lib/station";
+import { normalizeMode } from "@/lib/modes";
 import { idToDevice } from "@/lib/stationsStore";
 import { recordEvent } from "@/lib/events";
 import { appendLog } from "@/lib/logs";
@@ -23,13 +24,14 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   } catch {
     return NextResponse.json({ ok: false, error: "bad json" }, { status: 400 });
   }
-  const mode = body.mode === undefined ? undefined : String(body.mode);
+  const rawMode = body.mode === undefined ? undefined : String(body.mode);
+  const mode = rawMode === undefined ? undefined : normalizeMode(rawMode);
   const model = body.model === undefined ? undefined : String(body.model).trim();
-  if (mode === undefined && model === undefined) {
+  if (rawMode === undefined && model === undefined) {
     return NextResponse.json({ ok: false, error: "нужен mode или model" }, { status: 400 });
   }
-  if (mode !== undefined && mode !== "observe" && mode !== "hybrid") {
-    return NextResponse.json({ ok: false, error: "mode должен быть observe|hybrid" }, { status: 400 });
+  if (rawMode !== undefined && !mode) {
+    return NextResponse.json({ ok: false, error: "mode должен быть alice|hybrid|llm" }, { status: 400 });
   }
   if (model !== undefined && !/^[\w./:@+~-]{1,120}$/.test(model)) {
     return NextResponse.json({ ok: false, error: "недопустимое имя модели" }, { status: 400 });

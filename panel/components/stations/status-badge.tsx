@@ -2,6 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { MODE_INFO, normalizeMode, type PanelMode } from "@/lib/modes";
 
 export type StationState = "healthy" | "bridge-down" | "offline" | "applying";
 
@@ -27,22 +28,24 @@ export function StatusBadge({ state, className }: { state: StationState; classNa
   );
 }
 
+const MODE_CLS: Record<PanelMode, string> = {
+  alice: "border-sky-900/70 bg-sky-950/30 text-sky-300",
+  hybrid: "border-violet-900/70 bg-violet-950/30 text-violet-300",
+  llm: "border-emerald-900/70 bg-emerald-950/30 text-emerald-300",
+};
+
 export function ModeBadge({ mode, muted }: { mode?: string; muted?: boolean }) {
-  if (!mode) return null;
-  const hybrid = mode === "hybrid";
+  const pm = normalizeMode(mode);
+  if (!pm) return null;
   return (
     <Badge
       variant="outline"
       className={cn(
         "h-5 shrink-0 px-1.5 font-mono text-[10px] font-medium tracking-wider",
-        muted
-          ? "border-zinc-800 text-zinc-500"
-          : hybrid
-            ? "border-violet-900/70 bg-violet-950/30 text-violet-300"
-            : "border-emerald-900/70 bg-emerald-950/30 text-emerald-300",
+        muted ? "border-zinc-800 text-zinc-500" : MODE_CLS[pm],
       )}
     >
-      {hybrid ? "HYBRID" : mode === "observe" ? "OBSERVE" : mode.toUpperCase()}
+      {MODE_INFO[pm].badge}
     </Badge>
   );
 }

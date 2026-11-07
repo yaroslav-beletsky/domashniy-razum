@@ -51,7 +51,7 @@ export async function runAgent(opts: {
   const sessionKey = opts.sessionKey ?? (station ? `station:${station.device}` : null);
   const session = sessionKey ? getSession(sessionKey) : {};
   const seenTools: Set<string> = new Set(
-    Array.isArray(session.seenTools) ? session.seenTools : []
+    (Array.isArray(session.seenTools) ? session.seenTools : []).map(String)
   );
 
   const incomingSystem = opts.messages.find((m) => m.role === "system");
