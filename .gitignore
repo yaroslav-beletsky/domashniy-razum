@@ -43,3 +43,6 @@ voice-chain/com.yaroslav.station-voice.plist
 
 # helper that reads the LiteLLM key out of .env and can write it to a file
 agent-service/scripts-remote/probe.sh
+
+# local OpenCode workspace (kept locally, not part of the repo)
+.opencode/
