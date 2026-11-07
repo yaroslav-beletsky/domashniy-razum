@@ -56,5 +56,6 @@ agent-service/scripts-remote/probe.sh
 # local OpenCode workspace (kept locally, not part of the repo)
 .opencode/
 
-# UI screenshots from verify runs — heavy, reproducible via shots-station/verify.mjs
+# UI screenshots — heavy, reproducible via shots-station/verify.mjs
 shots-station/*.png
+shots-ui/

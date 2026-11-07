@@ -174,7 +174,7 @@ export default function StationsPage() {
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-4">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <h1 className="text-lg font-medium text-zinc-100">Станции</h1>
+        <h1 className="text-lg font-medium text-zinc-100">Колонки</h1>
         {stations && stations.length > 0 && (
           <span className="font-mono text-xs text-zinc-500">
             {online} в сети · {offline} оффлайн
@@ -196,6 +196,13 @@ export default function StationsPage() {
           </Button>
         </div>
       </div>
+      <p className="-mt-2 text-xs text-zinc-500">
+        Все колонки отвечают одним агентом —{" "}
+        <Link href="/agent" className="text-zinc-300 underline underline-offset-2">
+          Агент
+        </Link>
+        . Новый сеанс привязки — «Мастер настройки», подключение существующей — кнопка «Подключить» на странице колонки.
+      </p>
 
       {failed && !stations && (
         <p role="alert" className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-4 text-sm text-zinc-400">

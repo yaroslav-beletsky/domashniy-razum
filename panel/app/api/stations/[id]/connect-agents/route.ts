@@ -5,7 +5,7 @@
 // 3) runtime.env.bak-agent ← исходные base_url/ключ/модель; прописываем agent-service и model=agent:<slug>;
 // 4) check → restart → ждём healthy. Любой отказ откатывает runtime.env и привязку.
 import { NextRequest, NextResponse } from "next/server";
-import { agentFetch, resolveAgentId } from "@/lib/agentApi";
+import { agentFetch, resolveAgentId, resolveDefaultAgent } from "@/lib/agentApi";
 import { bindAgent, ensureSvcStation, mintKey } from "@/lib/agentBind";
 import { badJson, BIND_LABELS, notFound, readJson, sse } from "@/lib/agentRoutes";
 import { config } from "@/lib/config";
@@ -25,11 +25,20 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   if (!device) return notFound("колонка не найдена");
   const body = await readJson(req);
   if (!body) return badJson();
-  const agentParam = String(body.agent ?? "");
-  const agentId = await resolveAgentId(agentParam);
-  if (agentId === null) return notFound("агент не найден");
+  // Агент не передаётся (или пуст) — подключаем к единственному «нашему» агенту (первому в сервисе).
+  const agentParam = String(body.agent ?? "").trim();
+  const resolved = agentParam
+    ? { id: await resolveAgentId(agentParam), explicit: true }
+    : { id: (await resolveDefaultAgent())?.id ?? null, explicit: false };
+  if (resolved.id === null) {
+    return NextResponse.json(
+      { ok: false, error: resolved.explicit ? "агент не найден" : "в сервисе нет ни одного агента — сначала создайте его на странице «Агент»" },
+      { status: 404 },
+    );
+  }
+  const agentId = resolved.id;
   const a = await agentFetch<{ slug: string }>(`/agents/${agentId}`);
-  if (!a.ok) return NextResponse.json({ ok: false, error: a.error }, { status: a.status });
+  if (!a.ok) return NextResponse.json({ ok: false, error: a.error }, { status: a.status >= 400 ? a.status : 502 });
   const slug = a.data!.slug;
   const model = `agent:${slug}`;
 

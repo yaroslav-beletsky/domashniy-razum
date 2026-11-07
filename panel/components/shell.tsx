@@ -3,18 +3,16 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Activity, AudioLines, Bot, Boxes, Gauge, KeyRound, Lock, ScrollText, Speaker, Wand2 } from "lucide-react";
+import { Activity, Bot, KeyRound, Lock, Speaker, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 
+// Три раздела: колонки, единственный агент, мастер добавления.
+// Диагностика (модели, голос, логи, статистика) — вкладкой на странице агента.
 const NAV = [
-  { href: "/", label: "Пульт", icon: Gauge },
-  { href: "/agents", label: "Агенты", icon: Bot },
-  { href: "/models", label: "Модели", icon: Boxes },
-  { href: "/voice", label: "Голос", icon: AudioLines },
-  { href: "/stations", label: "Станции", icon: Speaker },
+  { href: "/stations", label: "Колонки", icon: Speaker },
+  { href: "/agent", label: "Агент", icon: Bot },
   { href: "/add-station", label: "Мастер", icon: Wand2 },
-  { href: "/logs", label: "Логи", icon: ScrollText },
 ];
 
 interface Status {
@@ -129,7 +127,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
-        <div className="flex h-12 items-center justify-center border-t font-mono text-[10px] text-zinc-600">v0.2</div>
+        <div className="flex h-12 items-center justify-center border-t font-mono text-[10px] text-zinc-600">v0.3</div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">

@@ -105,3 +105,13 @@ export async function resolveAgentId(param: string): Promise<number | null> {
   const r = await agentFetch<Array<{ id: number; slug: string }>>("/agents");
   return r.ok ? (r.data?.find((a) => a.slug === param)?.id ?? null) : null;
 }
+
+/**
+ * Единственный «наш» агент: первый в сервисе. Все колонки подключаются к нему по умолчанию
+ * (мастер, «Подключить к агенту» на колонке). null — в сервисе ещё нет ни одного агента.
+ */
+export async function resolveDefaultAgent(): Promise<{ id: number; slug: string } | null> {
+  const r = await agentFetch<Array<{ id: number; slug: string }>>("/agents");
+  if (!r.ok) return null;
+  return r.data?.[0] ?? null;
+}

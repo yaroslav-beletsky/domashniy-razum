@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, ChevronLeft, Loader2, MoreHorizontal, Pencil, RefreshCw, Trash2, WifiOff } from "lucide-react";
+import { CheckCircle2, ChevronLeft, Loader2, MoreHorizontal, Pencil, Plug, RefreshCw, Trash2, Unplug, WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { postSse } from "@/lib/sseClient";
+import { shortModelName } from "@/lib/modelNames";
 import type { StationView } from "@/lib/stationView";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -12,15 +14,13 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ModelPicker } from "@/components/stations/model-picker";
-import { AgentBind } from "@/components/stations/agent-bind";
 import { StationLog, type LocalLine } from "@/components/stations/station-log";
 import { AdbTerminal } from "@/components/stations/adb-terminal";
 import { VoicePicker } from "@/components/stations/voice-picker";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StationSvg, ringTone } from "@/components/stations/station-svg";
 import { StatusBadge } from "@/components/stations/status-badge";
-import { modelIds, pushRecent } from "@/lib/modelNames";
+import { AgentBadge } from "@/components/stations/agent-bind";
 import { MODE_INFO, PANEL_MODES, normalizeMode, type PanelMode } from "@/lib/modes";
 
 const MODE_ACTIVE: Record<PanelMode, string> = {
@@ -170,11 +170,12 @@ export default function StationDetailPage() {
 
   const [s, setS] = useState<StationView | null>(null);
   const [notFound, setNotFound] = useState(false);
-  const [models, setModels] = useState<string[]>([]);
-  const [modelsLoading, setModelsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [tab, setTab] = useState<"log" | "adb">("log");
+  const [agentBusy, setAgentBusy] = useState(false);
+  const [agentProgress, setAgentProgress] = useState<string | null>(null);
+  const [agentError, setAgentError] = useState<string | null>(null);
 
   // #adb в адресе — сразу открыть консоль
   useEffect(() => {
@@ -182,7 +183,7 @@ export default function StationDetailPage() {
   }, []);
 
   // операция «применяем…»
-  const [op, setOp] = useState<{ mode?: string; model?: string } | null>(null);
+  const [op, setOp] = useState<{ mode?: string } | null>(null);
   const [step, setStep] = useState<Step | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [opError, setOpError] = useState<string | null>(null);
@@ -217,18 +218,6 @@ export default function StationDetailPage() {
     return () => clearInterval(t);
   }, [load]);
 
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/models", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((j) => alive && j.ok && setModels(modelIds(j.models)))
-      .catch(() => {})
-      .finally(() => alive && setModelsLoading(false));
-    return () => {
-      alive = false;
-    };
-  }, []);
-
   // таймер операции
   useEffect(() => {
     if (!op) return;
@@ -250,15 +239,14 @@ export default function StationDetailPage() {
     setRefreshing(false);
   };
 
-  const apply = async (change: { mode?: string; model?: string }) => {
+  const apply = async (change: { mode?: string }) => {
     if (opRef.current || !s) return;
     opRef.current = true;
     setOp(change);
     setOpError(null);
     setStep(null);
-    const what = [change.mode && `режим → ${MODE_INFO[change.mode as PanelMode]?.label ?? change.mode}`, change.model && `модель → ${change.model}`].filter(Boolean).join(", ");
+    const what = change.mode && `режим → ${MODE_INFO[change.mode as PanelMode]?.label ?? change.mode}`;
     addLocal("info", `[панель] ${what}: запускаем`);
-    if (change.model) pushRecent(change.model);
 
     let finished = false;
     try {
@@ -320,12 +308,41 @@ export default function StationDetailPage() {
     }
   };
 
+  // ---------- подключение/отключение агента (без выбора: колонка идёт в единственного агента).
+  //  Нужен как аварийный путь: обычно привязкой занимается мастер или кнопка на /agent. ----------
+  const runAgentOp = async (kind: "connect" | "disconnect") => {
+    if (agentBusy || offline || busy) return;
+    setAgentBusy(true);
+    setAgentError(null);
+    setAgentProgress("запуск…");
+    let failed: string | null = null;
+    let done = false;
+    const res = await postSse(
+      `/api/stations/${id}/${kind === "connect" ? "connect-agents" : "disconnect-agents"}`,
+      kind === "connect" ? {} : {},
+      ({ data }) => {
+        if (data.type === "step") setAgentProgress(`${data.index}/${data.total} ${data.label}`);
+        else if (data.type === "done") done = true;
+        else if (data.type === "error") failed = String(data.error);
+      },
+    ).catch((e) => ({ ok: false, status: 0, error: e instanceof Error ? e.message : "соединение прервано" }));
+    if (!res.ok) failed = res.error ?? "ошибка";
+    if (!failed && !done) failed = "поток закрылся без итога — проверьте состояние колонки";
+    setAgentBusy(false);
+    setAgentProgress(null);
+    if (failed) setAgentError(failed);
+    else {
+      setToast(kind === "connect" ? "Колонка подключена к агенту" : "Колонка отключена от агента");
+      await load(true);
+    }
+  };
+
   // ---------- состояния страницы ----------
   if (notFound) {
     return (
       <div className="mx-auto flex max-w-3xl flex-col items-start gap-3">
         <Link href="/stations" className="inline-flex h-11 items-center gap-1 text-sm text-zinc-400 hover:text-zinc-200">
-          <ChevronLeft className="size-4" /> Станции
+          <ChevronLeft className="size-4" /> Колонки
         </Link>
         <p className="text-sm text-zinc-400">Такой колонки нет в панели.</p>
       </div>
@@ -347,7 +364,8 @@ export default function StationDetailPage() {
   const busy = Boolean(op) || serverBusy;
   const shownState = busy ? "applying" : s.state;
   const shownMode = normalizeMode(op?.mode ?? s.mode ?? (offline ? s.last?.mode : undefined));
-  const shownModel = op?.model ?? s.model ?? (offline ? s.last?.model : undefined);
+  // модель теперь живёт в агенте: показываем read-only, менять здесь нечего
+  const shownModel = s.model ?? (offline ? s.last?.model : undefined);
   const disabled = offline || busy;
   const meta = [
     s.ip,
@@ -367,7 +385,7 @@ export default function StationDetailPage() {
       {/* крошки */}
       <div className="flex items-center gap-1 text-sm">
         <Link href="/stations" className="inline-flex h-11 items-center gap-1 pr-2 text-zinc-400 transition-colors hover:text-zinc-100 sm:h-9">
-          <ChevronLeft className="size-4" /> Станции
+          <ChevronLeft className="size-4" /> Колонки
         </Link>
         <span className="text-zinc-700">/</span>
         <span className="min-w-0 truncate pl-1 text-zinc-200">{s.name}</span>
@@ -385,6 +403,15 @@ export default function StationDetailPage() {
               <DropdownMenuItem className="min-h-11 sm:min-h-8" onSelect={() => setEditOpen(true)}>
                 <Pencil className="size-4" /> Переименовать…
               </DropdownMenuItem>
+              {s.agent ? (
+                <DropdownMenuItem className="min-h-11 sm:min-h-8" disabled={offline || busy || agentBusy} onSelect={() => void runAgentOp("disconnect")}>
+                  <Unplug className="size-4" /> Отключить агента…
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem className="min-h-11 sm:min-h-8" disabled={offline || busy || agentBusy} onSelect={() => void runAgentOp("connect")}>
+                  <Plug className="size-4" /> Подключить к агенту
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -420,11 +447,19 @@ export default function StationDetailPage() {
         </div>
       )}
 
-      {/* управление */}
+      {/* управление: компактный режим + read-only агент/модель.
+          Модель и выбор агента отсюда убраны: модель задаёт единственный агент, все колонки идут в него. */}
       <section className="grid gap-4 rounded-xl border border-zinc-800 bg-zinc-950/60 p-4 sm:grid-cols-2 sm:gap-x-6">
         <div className="grid gap-1.5 sm:col-span-2">
-          <Label className="text-xs text-zinc-500">Режим</Label>
-          <div role="radiogroup" aria-label="Режим" className="grid grid-cols-3 gap-1.5">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <Label className="text-xs text-zinc-500">Режим</Label>
+            {shownMode && (
+              <span className="truncate text-[11px] leading-snug text-zinc-600" title={MODE_INFO[shownMode].hint}>
+                {MODE_INFO[shownMode].hint}
+              </span>
+            )}
+          </div>
+          <div role="radiogroup" aria-label="Режим" className="grid max-w-md grid-cols-3 gap-1.5">
             {PANEL_MODES.map((m) => {
               const active = shownMode === m;
               const pending = op?.mode === m;
@@ -450,31 +485,48 @@ export default function StationDetailPage() {
               );
             })}
           </div>
-          {shownMode && (
-            <p className="truncate text-[11px] leading-snug text-zinc-600">{MODE_INFO[shownMode].hint}</p>
-          )}
         </div>
 
         <div className="grid min-w-0 gap-1.5 sm:col-span-2">
-          <Label className="text-xs text-zinc-500">Модель</Label>
-          <ModelPicker
-            models={models}
-            value={shownModel}
-            loading={modelsLoading}
-            disabled={disabled || modelsLoading}
-            onSelect={(m) => apply({ model: m })}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <Label className="text-xs text-zinc-500">Агент</Label>
+            {s.agent ? (
+              <>
+                <AgentBadge agent={s.agent} link />
+                <span className="font-mono text-[11px] text-zinc-500" title={shownModel}>
+                  модель: {shortModelName(shownModel ?? "") || "—"}
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="text-xs text-zinc-500">
+                  не подключена{shownModel ? ` — модель ${shortModelName(shownModel)}` : " (прямая модель)"}.{" "}
+                  <Link href="/agent" className="text-zinc-300 underline underline-offset-2">
+                    Агент
+                  </Link>
+                </span>
+                <Button
+                  variant="outline"
+                  className="h-9 gap-1.5 px-3 text-xs"
+                  disabled={offline || busy || agentBusy}
+                  onClick={() => runAgentOp("connect")}
+                >
+                  {agentBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Plug className="size-3.5" />} Подключить
+                </Button>
+              </>
+            )}
+          </div>
+          {agentProgress && (
+            <p role="status" className="font-mono text-[11px] text-zinc-400">
+              {agentProgress}
+            </p>
+          )}
+          {agentError && (
+            <p role="alert" className="text-xs text-amber-400">
+              {agentError}
+            </p>
+          )}
         </div>
-
-        <AgentBind
-          station={s}
-          disabled={offline || busy}
-          onBusy={(b) => (b ? setOp({}) : setOp(null))}
-          onDone={(msg) => {
-            setToast(msg);
-            load(true);
-          }}
-        />
 
         {(busy || opError) && (
           <div className="sm:col-span-2" aria-live="polite">

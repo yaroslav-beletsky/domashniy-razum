@@ -264,24 +264,8 @@ function StepPanel({
   const st = state.steps[step.id];
   const status: StepStatus = run?.step === step.id && run.running ? "running" : (st?.status ?? "pending");
   const [mode, setMode] = useState(state.mode ?? "hybrid");
-  const [model, setModel] = useState(state.model ?? "");
-  const [agent, setAgent] = useState("");
   const [regName, setRegName] = useState(state.name ?? "");
   const [regKind, setRegKind] = useState(state.kind ?? "unknown");
-  const [models, setModels] = useState<string[]>([]);
-
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/models", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => {
-        if (alive && j && Array.isArray(j.models)) setModels(j.models.map((m: { id?: string }) => m.id).filter(Boolean).slice(0, 200));
-      })
-      .catch(() => undefined);
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   const running = run?.step === step.id && run.running;
   const execLabel =
@@ -292,9 +276,9 @@ function StepPanel({
         : step.id === "staticip"
           ? "Показать конфигурацию"
           : step.id === "mode"
-            ? "Применить режим/модель"
+            ? "Применить режим"
             : step.id === "register"
-              ? "Зарегистрировать"
+              ? "Зарегистрировать и подключить агента"
               : step.id === "test"
                 ? "Показать лог моста"
                 : "Выполнить";
@@ -302,7 +286,7 @@ function StepPanel({
 
   const runWithDanger = () => {
     if (step.danger && !window.confirm(`Шаг «${step.title}» меняет системную часть колонки. Откат описан в памятке шага. Продолжить?`)) return;
-    onRun(step.id, step.id === "mode" ? { mode, model: model.trim() || undefined } : step.id === "register" ? { name: regName, kind: regKind, agent } : undefined);
+    onRun(step.id, step.id === "mode" ? { mode } : step.id === "register" ? { name: regName, kind: regKind } : undefined);
   };
 
   return (
@@ -361,15 +345,7 @@ function StepPanel({
                 </button>
               ))}
             </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="wiz-model">Модель</Label>
-              <Input id="wiz-model" value={model} onChange={(e) => setModel(e.target.value)} list="wiz-model-list" placeholder="gpt-4o-mini" className="h-11 font-mono sm:h-9" />
-              <datalist id="wiz-model-list">
-                {models.map((m) => (
-                  <option key={m} value={m} />
-                ))}
-              </datalist>
-            </div>
+            <p className="text-[11px] text-zinc-500">Модель подставится от единственного агента — выбор здесь не нужен.</p>
           </div>
         )}
 
@@ -399,10 +375,7 @@ function StepPanel({
                 ))}
               </div>
             </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="wiz-agent">Агент (необязательно)</Label>
-              <Input id="wiz-agent" value={agent} onChange={(e) => setAgent(e.target.value)} placeholder="dushnila" className="h-11 font-mono sm:h-9" />
-            </div>
+            <p className="text-[11px] text-zinc-500">Агент подключится сам — единственный, без ручного выбора.</p>
           </div>
         )}
 

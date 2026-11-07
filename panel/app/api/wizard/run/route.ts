@@ -11,7 +11,7 @@ import { config } from "@/lib/config";
 import { applyBridgeChange } from "@/lib/station";
 import { normalizeMode } from "@/lib/modes";
 import { addStation, deviceToId, listStations, updateStation } from "@/lib/stationsStore";
-import { agentFetch, resolveAgentId } from "@/lib/agentApi";
+import { agentFetch, resolveDefaultAgent } from "@/lib/agentApi";
 import { bindAgent, ensureSvcStation, mintKey } from "@/lib/agentBind";
 import { connectStationAgent } from "@/lib/station";
 import { getWizardState, nextStep, setWizardCurrent, setWizardStep, STEP_BY_ID, type WizardStepId } from "@/lib/wizard";
@@ -119,7 +119,6 @@ export async function POST(req: NextRequest) {
         const params = (body.params ?? {}) as Record<string, unknown>;
         const name = (params.name !== undefined ? String(params.name).trim() : st.name ?? "") || undefined;
         const kind = (params.kind !== undefined ? String(params.kind).trim() : st.kind) || "unknown";
-        const agentParam = params.agent !== undefined ? String(params.agent).trim() : "";
         emit({ type: "log", level: "info", text: `регистрирую колонку ${device} в панели` });
         const exists = listStations().some((s) => s.device === device);
         if (!exists) {
@@ -130,17 +129,17 @@ export async function POST(req: NextRequest) {
         }
         emit({ type: "check", id: "panel", ok: true, text: "колонка в реестре панели" });
         let slug: string | null = null;
-        if (agentParam) {
-          const agentId = await resolveAgentId(agentParam);
-          if (agentId === null) return finish({ ok: false, error: "агент не найден — проверьте имя в разделе «Агенты»" });
-          const a = await agentFetch<{ slug: string }>(`/agents/${agentId}`);
+        // Авто-привязка без ручного шага: колонка всегда идёт в единственного «нашего» агента (первый в сервисе).
+        const def = await resolveDefaultAgent();
+        if (def) {
+          const a = await agentFetch<{ slug: string }>(`/agents/${def.id}`);
           if (!a.ok || !a.data) return finish({ ok: false, error: a.error ?? "agent-service недоступен" });
           slug = a.data.slug;
-          emit({ type: "log", level: "info", text: `привязываю агента ${slug}` });
+          emit({ type: "log", level: "info", text: `привязываю агента ${slug} (без ручного выбора)` });
           const svc = await ensureSvcStation(device, { name });
           if (!svc.ok || !svc.station) return finish({ ok: false, error: svc.error ?? "не удалось зарегистрировать колонку в agent-service" });
           const prev = svc.station.agent_id;
-          const bound = await bindAgent(svc.station.id, agentId);
+          const bound = await bindAgent(svc.station.id, def.id);
           if (!bound.ok) return finish({ ok: false, error: bound.error ?? "не удалось привязать агента" });
           const r = await connectStationAgent(device, { model: `agent:${slug}`, baseUrl: config.agentPublicBase, mintKey: () => mintKey(svc.station!.id) }, (id) => emit({ type: "step", id, label: id }));
           if (!r.ok) {
@@ -149,7 +148,7 @@ export async function POST(req: NextRequest) {
           }
           emit({ type: "check", id: "agent", ok: true, text: `агент ${slug} привязан, мост healthy (PID ${r.pid})` });
         } else {
-          emit({ type: "log", level: "info", text: "агент не выбран — только карточка в панели; привязку можно сделать позже со страницы колонки" });
+          emit({ type: "check", id: "agent", ok: false, text: "агентов в сервисе нет — колонка добавлена в панель, но не подключена. Создайте агента на странице «Агент» и нажмите «Подключить» на колонке" });
         }
         await patchWizard(undefined, undefined, deviceToId(device));
         finish({ ok: true, extra: { registeredId: deviceToId(device), agent: slug } });
