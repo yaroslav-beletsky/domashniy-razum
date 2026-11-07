@@ -269,8 +269,10 @@ export async function applyBridgeChange(
         cfg.mode = st.bridgeMode;
         if (st.routing) {
           const prev = (cfg.routing && typeof cfg.routing === "object" ? cfg.routing : {}) as Record<string, unknown>;
-          // сохраняем чужие поля routing (refusal и т.п.), подменяем наши
-          cfg.routing = { ...prev, ...structuredClone(st.routing) };
+          // сохраняем чужие поля routing (refusal и т.п.) и поля classifier (prompt, timeout_ms), подменяем наши
+          const next = structuredClone(st.routing);
+          const prevCls = (prev.classifier && typeof prev.classifier === "object" ? prev.classifier : {}) as Record<string, unknown>;
+          cfg.routing = { ...prev, ...next, classifier: { ...prevCls, ...next.classifier } };
         }
       });
       if (!b.ok) return fail(b.error ?? "не удалось записать config.json");
