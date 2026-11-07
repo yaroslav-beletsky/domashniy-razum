@@ -7,7 +7,8 @@ export function voiceSystemPrompt(base: string): string {
 
 /** Strip thinking blocks, markdown artifacts; trim to ~maxChars at a sentence boundary. */
 export function voiceClean(input: string, maxChars = 600): string {
-  let t = input.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "");
+  let t = input.replace(/<｜[^｜]*｜>/g, " "); // tokenizer artifacts: begin/end of sentence etc.
+  t = t.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "");
   t = t.replace(/<think>[\s\S]*?<\/think>/gi, "");
   t = t.replace(/```[\s\S]*?```/g, " ");
   t = t.replace(/`([^`]+)`/g, "$1");
