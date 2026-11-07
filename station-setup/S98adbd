@@ -1,0 +1,28 @@
+#!/bin/sh
+# S98adbd — persistent network ADB + DoH block (station-llm setup)
+case "${1:-start}" in
+	start)
+		# Block hardcoded DoH so boot-sync always goes unbound -> AdGuard -> lite-kit
+		iptables -A OUTPUT -d 1.1.1.1 -j REJECT 2>/dev/null
+		iptables -A OUTPUT -d 1.0.0.1 -j REJECT 2>/dev/null
+		iptables -A OUTPUT -d 8.8.8.8 -j REJECT 2>/dev/null
+		iptables -A OUTPUT -d 8.8.4.4 -j REJECT 2>/dev/null
+		# Ensure vendor markers exist (adbd reads them to enable TCP)
+		touch /data/quasar/activate_network_adb /data/quasar/activate_adb_quasmodrom 2>/dev/null
+		sleep 1
+		if ! pidof adbd >/dev/null 2>&1; then
+			/usr/bin/adbd &
+		fi
+		;;
+	stop)
+		killall adbd 2>/dev/null
+		;;
+	restart)
+		"$0" stop
+		sleep 1
+		"$0" start
+		;;
+	*)
+		echo "usage: $0 {start|stop|restart}"
+		;;
+esac

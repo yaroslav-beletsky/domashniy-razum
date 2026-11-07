@@ -41,10 +41,5 @@ opencode.json.bak-*
 # launchd unit with a live API key — publish voice-chain/launchd.plist.example instead
 voice-chain/com.yaroslav.station-voice.plist
 
-# exploit write-up and station capture scripts: root / firmware rollback /
-# update bypass / persistent ADB — keep local, do not publish
-docs/how-we-took-over.md
-station-setup/
-
 # helper that reads the LiteLLM key out of .env and can write it to a file
 agent-service/scripts-remote/probe.sh
