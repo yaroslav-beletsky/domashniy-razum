@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { Terminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { shortModelName } from "@/lib/modelNames";
 import type { StationView } from "@/lib/stationView";
 import { ModeBadge, StatusBadge } from "./status-badge";
 import { StationSvg, ringTone } from "./station-svg";
+import { AgentBadge } from "./agent-bind";
 
 export function StationCard({ s }: { s: StationView }) {
   const offline = s.state === "offline";
@@ -35,6 +37,11 @@ export function StationCard({ s }: { s: StationView }) {
             <h2 className="min-w-0 truncate text-[15px] font-medium text-zinc-100">{s.name}</h2>
             <StatusBadge state={s.state} />
           </div>
+          {s.agent && (
+            <div className="flex min-w-0">
+              <AgentBadge agent={s.agent} />
+            </div>
+          )}
 
           <div className="flex min-w-0 items-center gap-2 text-sm">
             {offline ? (
@@ -54,8 +61,19 @@ export function StationCard({ s }: { s: StationView }) {
 
         <div className="flex items-center justify-between font-mono text-[11px] text-zinc-500">
           <span>{ip}</span>
-          <span aria-hidden className="transition-transform group-hover:translate-x-0.5">
-            →
+          <span className="flex items-center gap-1">
+            {/* быстрый вход в ADB-консоль колонки (спека: кнопка Terminal на карточке) */}
+            <Link
+              href={`/stations/${s.id}#adb`}
+              aria-label={`ADB-консоль: ${s.name}`}
+              onClick={(e) => e.stopPropagation()}
+              className="flex size-9 items-center justify-center rounded-lg border border-zinc-800 text-zinc-500 transition-colors hover:border-zinc-600 hover:text-zinc-200"
+            >
+              <Terminal className="size-4" />
+            </Link>
+            <span aria-hidden className="transition-transform group-hover:translate-x-0.5">
+              →
+            </span>
           </span>
         </div>
       </div>

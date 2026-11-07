@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMediaQuery } from "@/lib/useMediaQuery";
-import { groupModels, loadRecent, parseModel, type ModelRow } from "@/lib/modelNames";
+import { groupModels, loadRecent, modelIds, parseModel, type ModelRow } from "@/lib/modelNames";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,7 +19,8 @@ import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle, Dr
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 interface Props {
-  models: string[];
+  /** id моделей; допускается и ответ /api/models целиком (`{id}[]`) — нормализуется внутри */
+  models: Array<string | { id: string }>;
   value?: string;
   onSelect: (id: string) => void;
   disabled?: boolean;
@@ -157,8 +158,9 @@ function Body({
   );
 }
 
-export function ModelPicker({ models, value, onSelect, disabled, loading }: Props) {
+export function ModelPicker({ models: rawModels, value, onSelect, disabled, loading }: Props) {
   const [open, setOpen] = useState(false);
+  const models = useMemo(() => modelIds(rawModels), [rawModels]);
   const mobile = useMediaQuery("(max-width: 767px)");
   const p = value ? parseModel(value) : null;
 

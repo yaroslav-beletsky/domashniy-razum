@@ -111,6 +111,17 @@ adminRouter.post("/agents/:id/test", async (req, res) => {
   const a = loadAgent(req);
   if (!a) return res.status(404).json({ error: { message: "not found", type: "not_found" } });
 
+  // Необязательный контекст колонки: подставит {{room}}/{{station_name}} как для
+  // реального запроса с колонки (и то же время/дату). Не задан/null — «без колонки».
+  let station: StationRow | null = null;
+  if (req.body?.station_id !== undefined && req.body?.station_id !== null) {
+    const sid = Number(req.body?.station_id);
+    station = (db.prepare("SELECT * FROM stations WHERE id = ?").get(sid) as StationRow | undefined) ?? null;
+    if (!station) {
+      return res.status(400).json({ error: { message: `station not found: ${req.body?.station_id}`, type: "bad_request" } });
+    }
+  }
+
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
@@ -121,7 +132,7 @@ adminRouter.post("/agents/:id/test", async (req, res) => {
   try {
     const result = await runAgent({
       agent: a,
-      station: null,
+      station,
       messages: [{ role: "user", content: prompt }],
       sessionKey: `test:${a.id}:${Date.now()}`,
       voice: req.body?.voice !== false,
@@ -256,9 +267,17 @@ adminRouter.get("/mcp/:id/secrets", (req, res) => {
 });
 
 // ---------- stations ----------
+/** Человекочитаемая метка колонки (name/room): без управляющих символов, ≤60 симв. */
+function cleanStationLabel(v: unknown): string | null | undefined {
+  if (v === undefined) return undefined;
+  const s = String(v ?? "").replace(/[\u0000-\u001f]/g, "").trim().slice(0, 60);
+  return s || null; // пустая строка очищает значение (NULL в БД)
+}
+
 adminRouter.get("/stations", (_req, res) => {
   const rows = db.prepare(`
-    SELECT s.id, s.device, s.agent_id, s.created_at, a.slug AS agent_slug, s.key_hash IS NOT NULL AS has_key
+    SELECT s.id, s.device, s.agent_id, s.name, s.room, s.created_at,
+           a.slug AS agent_slug, s.key_hash IS NOT NULL AS has_key
     FROM stations s LEFT JOIN agents a ON a.id = s.agent_id ORDER BY s.id
   `).all() as any[];
   res.json(rows);
@@ -269,15 +288,35 @@ adminRouter.post("/stations", (req, res) => {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{1,60}$/.test(device)) {
     return res.status(400).json({ error: { message: "bad device id", type: "bad_request" } });
   }
+  const name = cleanStationLabel(req.body?.name);
+  const room = cleanStationLabel(req.body?.room);
   try {
     const t = Date.now();
-    const r = db.prepare("INSERT INTO stations (device, agent_id, created_at, updated_at) VALUES (?,?,?,?)")
-      .run(device, req.body?.agent_id ? Number(req.body.agent_id) : null, t, t);
+    const r = db.prepare("INSERT INTO stations (device, agent_id, name, room, created_at, updated_at) VALUES (?,?,?,?,?,?)")
+      .run(device, req.body?.agent_id ? Number(req.body.agent_id) : null, name ?? null, room ?? null, t, t);
     audit("admin.station.create", { id: r.lastInsertRowid, device });
-    res.status(201).json(db.prepare("SELECT id, device, agent_id, created_at FROM stations WHERE id = ?").get(r.lastInsertRowid));
+    res.status(201).json(db.prepare("SELECT id, device, agent_id, name, room, created_at FROM stations WHERE id = ?").get(r.lastInsertRowid));
   } catch (e) {
     res.status(400).json({ error: { message: String(e).slice(0, 300), type: "bad_request" } });
   }
+});
+
+// Имя/комната колонки — источник чипов {{station_name}} / {{room}} в промпте агента.
+adminRouter.patch("/stations/:id", (req, res) => {
+  const s = loadStation(req);
+  if (!s) return res.status(404).json({ error: { message: "not found", type: "not_found" } });
+  const name = cleanStationLabel(req.body?.name);
+  const room = cleanStationLabel(req.body?.room);
+  if (name === undefined && room === undefined) {
+    return res.status(400).json({ error: { message: "fields: name, room", type: "bad_request" } });
+  }
+  const sets: string[] = [];
+  const params: Record<string, unknown> = { id: s.id, updated: Date.now() };
+  if (name !== undefined) { sets.push("name = @name"); params.name = name; } // "" или null → очищает
+  if (room !== undefined) { sets.push("room = @room"); params.room = room; }
+  db.prepare(`UPDATE stations SET ${sets.join(", ")}, updated_at = @updated WHERE id = @id`).run(params);
+  audit("admin.station.patch", { id: s.id, fields: [name !== undefined && "name", room !== undefined && "room"].filter(Boolean) });
+  res.json({ station: s.id, device: s.device, name: name ?? s.name, room: room ?? s.room });
 });
 
 function loadStation(req: any): StationRow | undefined {
@@ -288,7 +327,7 @@ adminRouter.get("/stations/:id/agent", (req, res) => {
   const s = loadStation(req);
   if (!s) return res.status(404).json({ error: { message: "not found", type: "not_found" } });
   const agent = s.agent_id ? db.prepare("SELECT id, slug, model FROM agents WHERE id = ?").get(s.agent_id) : null;
-  res.json({ station: s.id, device: s.device, agent });
+  res.json({ station: s.id, device: s.device, name: s.name, room: s.room, agent });
 });
 
 adminRouter.put("/stations/:id/agent", (req, res) => {

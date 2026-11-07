@@ -9,6 +9,8 @@ export interface AdbResult {
   stdout: string;
   stderr: string;
   ms: number;
+  /** оборвано через AbortSignal (кнопка «Стоп» в консоли) */
+  aborted?: boolean;
 }
 
 export function firstDevice(): string {
@@ -19,7 +21,7 @@ function adbEnv(): NodeJS.ProcessEnv {
   return { ...process.env, HOME: config.adbHome, ANDROID_SDK_HOME: config.adbHome };
 }
 
-function run(args: string[], timeoutMs: number): Promise<AdbResult> {
+function run(args: string[], timeoutMs: number, signal?: AbortSignal): Promise<AdbResult> {
   const started = Date.now();
   return new Promise((resolve) => {
     const child = execFile(
@@ -27,10 +29,30 @@ function run(args: string[], timeoutMs: number): Promise<AdbResult> {
       args,
       { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, env: adbEnv() },
       (err, stdout, stderr) => {
-        resolve({ ok: !err, stdout: String(stdout ?? ""), stderr: String(stderr ?? ""), ms: Date.now() - started });
+        signal?.removeEventListener("abort", onAbort);
+        const aborted = Boolean(signal?.aborted);
+        resolve({
+          ok: !err && !aborted,
+          stdout: String(stdout ?? ""),
+          stderr: aborted ? "" : String(stderr ?? ""),
+          ms: Date.now() - started,
+          aborted,
+        });
       },
     );
-    child.on("error", (e) => resolve({ ok: false, stdout: "", stderr: e.message, ms: Date.now() - started }));
+    // «Стоп» в консоли: обрыв HTTP-запроса → SIGKILL дочернего adb, не ждём таймаута
+    const onAbort = () => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* уже мёртв */
+      }
+    };
+    signal?.addEventListener("abort", onAbort);
+    child.on("error", (e) => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve({ ok: false, stdout: "", stderr: e.message, ms: Date.now() - started });
+    });
   });
 }
 
@@ -45,15 +67,15 @@ export async function adbEnsureConnected(device = firstDevice(), force = false):
 }
 
 /** Выполнить adb-команду. Если в args есть "-s <device>", сначала гарантируем connect. */
-export async function adbExec(args: string[], timeoutMs = config.adbTimeoutMs): Promise<AdbResult> {
+export async function adbExec(args: string[], timeoutMs = config.adbTimeoutMs, signal?: AbortSignal): Promise<AdbResult> {
   const si = args.indexOf("-s");
   const device = si >= 0 ? args[si + 1] : undefined;
   if (device) await adbEnsureConnected(device);
-  let r = await run(args, timeoutMs);
-  // «device offline / not found» → один повторный connect
-  if (!r.ok && device && /offline|not found|no devices|closed/i.test(r.stderr + r.stdout)) {
+  let r = await run(args, timeoutMs, signal);
+  // «device offline / not found» → один повторный connect (но не при ручном обрыве)
+  if (!r.ok && !r.aborted && device && /offline|not found|no devices|closed/i.test(r.stderr + r.stdout)) {
     await adbEnsureConnected(device, true);
-    r = await run(args, timeoutMs);
+    r = await run(args, timeoutMs, signal);
   }
   return r;
 }

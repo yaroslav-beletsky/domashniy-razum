@@ -1,5 +1,6 @@
 import { chat, chatStream, LlmError, type ChatMessage } from "../llm/litellm.js";
 import { voiceSystemPrompt, voiceClean } from "./voice.js";
+import { chipValues, renderChips } from "./chips.js";
 import { collectTools, type AgentToolSpec } from "../mcp/registry.js";
 import { compressRound, dedupKey } from "../mcp/tools.js";
 import { audit, getSession, setSession, type AgentRow, type StationRow } from "../db.js";
@@ -55,7 +56,9 @@ export async function runAgent(opts: {
   );
 
   const incomingSystem = opts.messages.find((m) => m.role === "system");
-  let system = voiceSystemPrompt(agent.system_prompt);
+  // Чипы {{time}}/{{date}}/{{room}}/{{station_name}}: значения фиксируются на старте
+  // запроса и не пересчитываются — все раунды tool-loop и фолбэк видят один промпт.
+  let system = voiceSystemPrompt(renderChips(agent.system_prompt, chipValues({ station })));
   if (incomingSystem?.content && incomingSystem.content !== system) {
     system += `\n\n[контекст моста]\n${incomingSystem.content}`;
   }

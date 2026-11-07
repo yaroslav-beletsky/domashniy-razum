@@ -24,6 +24,10 @@ secrets/
 *.log
 logs/
 
+# app routes literally named "logs" — source, not runtime logs
+!panel/app/logs/
+!panel/app/api/logs/
+
 # os / editor
 .DS_Store
 

@@ -3,6 +3,8 @@
 //  hybrid → mode=hybrid + routing: медиа/погода/таймеры/умный дом → Яндекс, остальное → модель.
 //  llm    → mode=hybrid + routing.default_route=llm, rules=[], classifier выключен: всё → модель.
 // Мост принимает mode только observe|hybrid; "llm" — понятие панели.
+// В hybrid/llm панель также ставит listen_after_reply=true (бесшовный диалог без «Алиса»), в alice ключ не трогает;
+// значение задаётся в lib/station.ts (bridgeSettings).
 
 export type PanelMode = "alice" | "hybrid" | "llm";
 export const PANEL_MODES: PanelMode[] = ["alice", "hybrid", "llm"];

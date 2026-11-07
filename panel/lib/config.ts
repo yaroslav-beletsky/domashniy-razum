@@ -23,6 +23,10 @@ export const config = {
   voiceLogSshTarget: process.env.VOICE_LOG_SSH_TARGET ?? "yaroslav@192.168.88.23",
   voiceLogSshKey: process.env.VOICE_LOG_SSH_KEY ?? "/ssh/id_ed25519",
   voiceLogSshPath: process.env.VOICE_LOG_SSH_PATH ?? "~/Documents/home/station-llm/voice-chain/logs/belch-voice.log",
+  // agent-service (admin API за Bearer-токеном; токен живёт только здесь, на сервере панели).
+  agentServiceUrl: (process.env.AGENT_SERVICE_URL ?? "http://host.docker.internal:4100").replace(/\/+$/, ""),
+  // Адрес data-plane, который прописывается колонке (колонка ходит с LAN, а не из docker-сети).
+  agentPublicBase: (process.env.AGENT_PUBLIC_BASE ?? "http://192.168.88.207:4100/v1").replace(/\/+$/, ""),
   bootTime: Date.now(),
   panelVersion: "0.2.0",
 };
@@ -30,6 +34,10 @@ export const config = {
 /** Ключ задан (само значение не отдаём наружу ни при каких условиях). */
 export function litellmApiKey(): string {
   return process.env.LITELLM_API_KEY ?? "";
+}
+
+export function agentAdminToken(): string {
+  return process.env.AGENT_ADMIN_TOKEN ?? "";
 }
 
 export function keyConfigured(): boolean {

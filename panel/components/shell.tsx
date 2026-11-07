@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Activity, AudioLines, Boxes, Gauge, KeyRound, Lock, ScrollText, Speaker } from "lucide-react";
+import { Activity, AudioLines, Bot, Boxes, Gauge, KeyRound, Lock, ScrollText, Speaker } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 
 const NAV = [
   { href: "/", label: "Пульт", icon: Gauge },
+  { href: "/agents", label: "Агенты", icon: Bot },
   { href: "/models", label: "Модели", icon: Boxes },
   { href: "/voice", label: "Голос", icon: AudioLines },
   { href: "/stations", label: "Станции", icon: Speaker },

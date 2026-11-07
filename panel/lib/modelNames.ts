@@ -88,6 +88,21 @@ export function parseModel(id: string): ParsedModel {
   return { id, providerKey, provider, vendor, name: name || rest, variant, short: rest };
 }
 
+/**
+ * Приводит ответ /api/models к списку id. API отдаёт объекты `{id, object, owned_by}`,
+ * но компоненты работают со строками; терпим оба формата и отбрасываем мусор и дубликаты
+ * (дубликат id = дубликат React key в пикере).
+ */
+export function modelIds(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const out = new Set<string>();
+  for (const m of input) {
+    const id = typeof m === "string" ? m : m && typeof m === "object" ? (m as { id?: unknown }).id : undefined;
+    if (typeof id === "string" && id.trim()) out.add(id);
+  }
+  return [...out];
+}
+
 /** Короткое имя для карточки: без префикса провайдера, обрезка по длине. Полный id — в title. */
 export function shortModelName(id: string | undefined, max = 28): string {
   if (!id) return "—";

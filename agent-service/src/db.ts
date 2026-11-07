@@ -8,7 +8,11 @@ ensureSecretsDir();
 fs.mkdirSync(path.dirname(config.dbPath), { recursive: true });
 
 export const db = new Database(config.dbPath);
-db.pragma("journal_mode = WAL");
+// НЕ WAL: база лежит на bind-mount через virtiofs (colima), где восстановление
+// -wal между процессами ненадёжно — свежие коммиты терялись при recreate
+// контейнера (подмена имени/комнаты колонки, ключи). Rollback-journal на этой
+// ФС надёжен; нагрузка крошечная, цена — пара мс на запись.
+db.pragma("journal_mode = DELETE");
 db.pragma("foreign_keys = ON");
 
 db.exec(`
@@ -34,6 +38,8 @@ CREATE TABLE IF NOT EXISTS stations (
   device TEXT UNIQUE NOT NULL,
   key_hash TEXT UNIQUE,
   agent_id INTEGER REFERENCES agents(id) ON DELETE SET NULL,
+  name TEXT,
+  room TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -70,6 +76,15 @@ CREATE TABLE IF NOT EXISTS audit (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit(ts);
 `);
+
+// Мягкая миграция существующих БД: stations.name / stations.room (для чипов
+// {{station_name}} / {{room}} в системном промпте). CREATE TABLE IF NOT EXISTS
+// уже существующую таблицу не расширяет.
+{
+  const cols = (db.prepare("PRAGMA table_info(stations)").all() as { name: string }[]).map((c) => c.name);
+  if (!cols.includes("name")) db.exec("ALTER TABLE stations ADD COLUMN name TEXT");
+  if (!cols.includes("room")) db.exec("ALTER TABLE stations ADD COLUMN room TEXT");
+}
 
 export const now = () => Date.now();
 
@@ -113,6 +128,10 @@ export interface StationRow {
   device: string;
   key_hash: string | null;
   agent_id: number | null;
+  /** Человекочитаемое имя колонки ({{station_name}}); пусто → device. */
+  name: string | null;
+  /** Комната ({{room}}). */
+  room: string | null;
   created_at: number;
   updated_at: number;
 }

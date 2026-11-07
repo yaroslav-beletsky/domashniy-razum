@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { idToDevice, listStations, removeStation, updateStation } from "@/lib/stationsStore";
 import { buildView } from "@/lib/stationView";
+import { agentFetch } from "@/lib/agentApi";
+import { findSvcStation, stationChipsMeta } from "@/lib/agentBind";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +29,18 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     return NextResponse.json({ ok: false, error: "bad json" }, { status: 400 });
   }
   const r = updateStation(device, { name: body.name, kind: body.kind });
+  if (r.ok && body.name !== undefined) {
+    // Лучшее старание: переименовали комнату — обновляем и в agent-service,
+    // чтобы чипы {{room}}/{{station_name}} в промпте агента не устарели.
+    const f = await findSvcStation(device);
+    if (f.ok && f.station) {
+      await agentFetch(`/stations/${f.station.id}`, {
+        method: "PATCH",
+        body: stationChipsMeta({ device, name: body.name }),
+        timeoutMs: 5000,
+      }).catch(() => undefined);
+    }
+  }
   return NextResponse.json(r, { status: r.ok ? 200 : 400 });
 }
 

@@ -98,6 +98,21 @@ curl -sN -X POST http://127.0.0.1:4100/admin/agents/1/test \
 # события: round / tool_call / delta / done{ms_total,rounds,fallback_used,chars}
 ```
 
+## Чипы в системном промпте
+
+При каждом запросе `agent:<slug>` сервис подставляет в системный промпт агента:
+
+| Чип | Значение |
+|---|---|
+| `{{time}}` | локальное время на момент запроса, «14:32» (TZ контейнера, `TZ` в docker-compose, по умолчанию Europe/Moscow) |
+| `{{date}}` | «суббота, 7 ноября 2026» |
+| `{{station_name}}` | имя колонки из `stations.name`; пусто — `stations.device` |
+| `{{room}}` | комната из `stations.room` |
+
+Значения фиксируются один раз на запрос: все раунды tool-loop и запасная модель видят один и тот же промпт. Известный чип с пустым значением (например, `{{room}}` у колонки без комнаты, тест без колонки) вырезается с чисткой следов («в комнате .» → «в комнате.»). Неизвестные чипы (`{{user_name}}` и т.п.) остаются как есть.
+
+Имя/комната колонки: `PATCH /admin/stations/:id {"name","room"}` (пустая строка очищает). Панель при подключении колонки к агенту и при переименовании комнаты передаёт их сама.
+
 ## Подключение MCP
 
 HTTP (Streamable HTTP) — пример Home Assistant:
@@ -144,13 +159,13 @@ curl -s -X POST http://127.0.0.1:4100/admin/mcp -H "Authorization: Bearer $TOKEN
 |---|---|---|
 | GET/POST | `/admin/agents` | список / создать |
 | GET/PATCH/DELETE | `/admin/agents/:id` | читать / править (`If-Match: version`) / удалить |
-| POST | `/admin/agents/:id/test` | SSE-прогон: round, tool_call, delta, done |
+| POST | `/admin/agents/:id/test` | SSE-прогон: round, tool_call, delta, done (`{prompt, voice?, station_id?}`) |
 | GET/POST/PATCH/DELETE | `/admin/mcp` | MCP-серверы |
 | POST | `/admin/mcp/:id/refresh` | обновить кэш инструментов |
 | GET | `/admin/mcp/:id/tools` | кэшированные инструменты |
 | PUT/GET | `/admin/mcp/:id/secrets` | записать секреты / увидеть `{name, set}` |
-| GET | `/admin/stations` | список колонок |
-| POST | `/admin/stations` | создать колонку `{device}` |
+| GET/POST | `/admin/stations` | список / создать колонку (`{device, name?, room?}`) |
+| PATCH | `/admin/stations/:id` | имя/комната колонки (`{name?, room?}` — источник чипов промпта) |
 | GET/PUT | `/admin/stations/:id/agent` | агент колонки |
 | POST | `/admin/stations/:id/key` | выпустить ключ (открытый текст один раз) |
 | DELETE | `/admin/sessions/:station` | сбросить сессию колонки |

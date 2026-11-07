@@ -12,6 +12,8 @@ services:
     environment:
       LITELLM_BASE_URL: http://litellm:4000/v1
       MCP_STDIO_ALLOW: ${MCP_STDIO_ALLOW:-}
+      # Чипы {{time}}/{{date}}: локальное время = московское (как и builtin__datetime).
+      TZ: ${AGENT_TZ:-Europe/Moscow}
     volumes:
       - ./secrets/agent:/app/secrets/agent
     restart: unless-stopped

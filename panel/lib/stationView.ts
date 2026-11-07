@@ -1,6 +1,8 @@
 // Сборка «вида» колонки для UI: реестр + живой статус + эффективное состояние.
 import { stationStatus, isApplying, type BridgeInfo } from "./station";
 import { defaultName, deviceToId, type StationMeta } from "./stationsStore";
+import { agentSlugFromModel } from "./agentTypes";
+import { getMeta } from "./agentMeta";
 
 export type StationState = "healthy" | "bridge-down" | "offline" | "applying";
 
@@ -21,6 +23,8 @@ export interface StationView {
   firmware?: string;
   bridgeVersion?: string;
   error?: string;
+  /** колонка отвечает через агента (model = agent:<slug>) */
+  agent?: { slug: string; name: string };
   /** для оффлайн-карточки */
   last?: { at: number; model?: string; mode?: string; ip?: string; firmware?: string; bridgeVersion?: string };
 }
@@ -39,6 +43,7 @@ export async function buildView(meta: StationMeta, fresh = false, timeoutMs = 12
   const info = await withTimeout(stationStatus(meta.device, fresh), timeoutMs, meta.device);
   const reachable = info.reachable;
   const state: StationState = applying ? "applying" : !reachable ? "offline" : info.healthy ? "healthy" : "bridge-down";
+  const slug = agentSlugFromModel(info.model ?? (reachable ? undefined : meta.last?.model));
   return {
     id: deviceToId(meta.device),
     device: meta.device,
@@ -56,6 +61,7 @@ export async function buildView(meta: StationMeta, fresh = false, timeoutMs = 12
     firmware: info.firmware,
     bridgeVersion: info.bridgeVersion,
     error: info.error,
+    agent: slug ? { slug, name: getMeta(slug).name || slug } : undefined,
     last: meta.last,
   };
 }

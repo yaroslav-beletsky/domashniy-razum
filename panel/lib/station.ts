@@ -164,17 +164,19 @@ async function patchConfig(
 }
 
 /** Что записать в мост для режима панели. routing=undefined — блок не трогаем («Алиса»). */
-// listenAfterReply=false: после ответа нашей модели микрофон не переоткрывается. Иначе следующий «хвост» уходит
-// Яндексу напрямую (route=yandex, sent=true, без native_route_decision) в обход routing/default_route=llm.
-// Ответы самого Яндекса это не затрагивает (у них своё поведение). Для «Алиса» ключ не трогаем.
+// listenAfterReply=true в «Гибрид»/«LLM»: после ответа нашей модели колонка сама слушает следующую фразу (без «Алиса»).
+// Продолжение идёт новым запросом через routing (при default_route=llm — в модель). Проверено вживую на .79:
+// первый вопрос → модель, продолжение без активатора принято. Ответы самого Яндекса флаг не затрагивает.
+// Для «Алиса» (observe) ключ не трогаем: undefined → patchConfig его не пишет. Смена флага требует restart —
+// он и так выполняется при смене режима.
 function bridgeSettings(mode: PanelMode): {
   bridgeMode: "observe" | "hybrid";
   routing?: typeof ROUTING_LLM;
   listenAfterReply?: boolean;
 } {
   if (mode === "alice") return { bridgeMode: "observe" };
-  if (mode === "hybrid") return { bridgeMode: "hybrid", routing: ROUTING_HYBRID, listenAfterReply: false };
-  return { bridgeMode: "hybrid", routing: ROUTING_LLM, listenAfterReply: false };
+  if (mode === "hybrid") return { bridgeMode: "hybrid", routing: ROUTING_HYBRID, listenAfterReply: true };
+  return { bridgeMode: "hybrid", routing: ROUTING_LLM, listenAfterReply: true };
 }
 
 async function restartBridge(device: string): Promise<{ ok: boolean; error?: string }> {
@@ -332,4 +334,184 @@ export async function bridgeLogTail(lines = 100, device = firstDevice()): Promis
   const r = await adbExec(["-s", device, "shell", `tail -n ${n} ${STATE}/service.log 2>/dev/null`], 10000);
   if (!r.ok) return [];
   return r.stdout.split("\n").filter((l) => l.trim().length > 0);
+}
+
+// ---------- привязка колонки к агенту (agent-service) ----------
+// connect: base_url/ключ/модель из runtime.env → runtime.env.bak-agent (сырые строки), затем
+//   QUASAR_LLM_BASE_URL=<agent-service>, QUASAR_LLM_API_KEY=<ключ колонки>, QUASAR_LLM_MODEL=agent:<slug>.
+// disconnect: те же три ключа возвращаются из .bak-agent, файл удаляется.
+// Остальной runtime.env (режим и т.п.) не трогаем. Значения ключей нигде не логируются.
+const BAK = `${STATE}/runtime.env.bak-agent`;
+const BIND_KEYS = ["QUASAR_LLM_BASE_URL", "QUASAR_LLM_API_KEY", "QUASAR_LLM_MODEL"] as const;
+
+export type BindStepId = "key" | "write" | "check" | "restart" | "wait";
+
+function rawEnvLine(text: string, key: string): string | undefined {
+  const re = new RegExp(`^${key}=.*$`, "gm");
+  let last: string | undefined;
+  for (let m = re.exec(text); m; m = re.exec(text)) last = m[0];
+  return last;
+}
+
+function dropEnvKey(text: string, key: string): string {
+  return text.replace(new RegExp(`^${key}=.*\\n?`, "gm"), "");
+}
+
+function appendLine(text: string, line: string): string {
+  return text.replace(/\n?$/, "\n") + line + "\n";
+}
+
+async function pullText(device: string, remote: string): Promise<string | null> {
+  const tmp = await adbPull(remote, device);
+  if (!tmp) return null;
+  try {
+    return fs.readFileSync(tmp, "utf8");
+  } finally {
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+async function pushText(device: string, remote: string, text: string): Promise<boolean> {
+  const tmp = `/tmp/adb-push-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  try {
+    fs.writeFileSync(tmp, text, { mode: 0o600 });
+    const ok = await adbPush(tmp, remote, device);
+    if (ok) await adbExec(["-s", device, "shell", `chmod 600 ${remote}`], 8000);
+    return ok;
+  } finally {
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/** check → restart → wait; при отказе возвращает runtime.env из снимка. */
+async function checkRestartWait(
+  device: string,
+  oldPid: number | undefined,
+  snapshot: string,
+  step: (id: BindStepId) => void,
+): Promise<{ ok: boolean; error?: string; pid?: number }> {
+  const rollback = async () => {
+    await pushText(device, `${STATE}/runtime.env`, snapshot);
+  };
+  step("check");
+  const chk = await adbExec(["-s", device, "shell", `sh ${APP}/control.sh check 2>&1`], 15000);
+  const chkOut = (chk.stdout + chk.stderr).trim();
+  if (!chk.ok || !/configuration is valid/i.test(chkOut)) {
+    await rollback();
+    const reason = chkOut.match(/"error":"([^"]+)"/)?.[1] ?? chkOut.slice(-140);
+    return { ok: false, error: `конфигурация отклонена: ${reason}. Настройки возвращены` };
+  }
+  step("restart");
+  const r = await restartBridge(device);
+  if (!r.ok) {
+    await rollback();
+    return { ok: false, error: r.error ?? "restart не удался" };
+  }
+  step("wait");
+  const pid = await waitHealthy(device, 30000, oldPid);
+  if (pid === null) {
+    await rollback();
+    return { ok: false, error: "мост не стал healthy с новым PID за 30 с (настройки возвращены, перезапустите мост)" };
+  }
+  return { ok: true, pid };
+}
+
+/** Колонка → агент. Если колонка уже на agent-service (есть .bak-agent) — меняется только модель, ключ сохраняется. */
+export async function connectStationAgent(
+  device: string,
+  o: { model: string; baseUrl: string; mintKey: () => Promise<{ key?: string; error?: string }> },
+  onStep?: (id: BindStepId) => void,
+): Promise<{ ok: boolean; error?: string; pid?: number; reused?: boolean }> {
+  if (!/^agent:[a-z0-9][a-z0-9_-]{1,60}$/.test(o.model)) return { ok: false, error: "модель должна быть agent:<slug>" };
+  if (applying.has(device)) return { ok: false, error: "операция уже выполняется" };
+  applying.add(device);
+  const step = (id: BindStepId) => onStep?.(id);
+  try {
+    const before = await adbExec(["-s", device, "shell", `sh ${APP}/control.sh status 2>&1`], 10000);
+    const oldPid = Number(before.stdout.match(/PID (\d+)/)?.[1]) || undefined;
+    const snapshot = await pullText(device, `${STATE}/runtime.env`);
+    if (snapshot === null) return { ok: false, error: "не удалось прочитать runtime.env" };
+
+    const curBase = envValue(snapshot, "QUASAR_LLM_BASE_URL");
+    const bakText = await pullText(device, BAK);
+    const reused = bakText !== null && curBase === o.baseUrl;
+    let createdBak = false;
+    let text = snapshot;
+
+    if (!reused) {
+      // исходные значения → .bak-agent (сырые строки, как лежали в файле)
+      const lines = BIND_KEYS.map((k) => rawEnvLine(snapshot, k)).filter((l): l is string => Boolean(l));
+      if (!(await pushText(device, BAK, lines.join("\n") + (lines.length ? "\n" : "")))) {
+        return { ok: false, error: "не удалось записать runtime.env.bak-agent" };
+      }
+      createdBak = true;
+      step("key");
+      const k = await o.mintKey();
+      if (!k.key) {
+        await adbExec(["-s", device, "shell", `rm -f ${BAK}`], 8000);
+        return { ok: false, error: k.error ?? "не удалось выпустить ключ колонки" };
+      }
+      for (const key of ["QUASAR_LLM_BASE_URL", "QUASAR_LLM_API_KEY"]) text = dropEnvKey(text, key);
+      text = appendLine(text, `QUASAR_LLM_BASE_URL=${shellQuote(o.baseUrl)}`);
+      text = appendLine(text, `QUASAR_LLM_API_KEY=${shellQuote(k.key)}`);
+    }
+    text = appendLine(dropEnvKey(text, "QUASAR_LLM_MODEL"), `QUASAR_LLM_MODEL=${shellQuote(o.model)}`);
+
+    step("write");
+    if (!(await pushText(device, `${STATE}/runtime.env`, text))) {
+      if (createdBak) await adbExec(["-s", device, "shell", `rm -f ${BAK}`], 8000);
+      return { ok: false, error: "adb push runtime.env не удался" };
+    }
+    const res = await checkRestartWait(device, oldPid, snapshot, step);
+    if (!res.ok && createdBak) await adbExec(["-s", device, "shell", `rm -f ${BAK}`], 8000);
+    return { ...res, reused };
+  } finally {
+    applying.delete(device);
+    statusCache.delete(device);
+  }
+}
+
+/** Колонка ← агент: base_url/ключ/модель возвращаются из .bak-agent. */
+export async function disconnectStationAgent(
+  device: string,
+  onStep?: (id: BindStepId) => void,
+): Promise<{ ok: boolean; error?: string; pid?: number; model?: string }> {
+  if (applying.has(device)) return { ok: false, error: "операция уже выполняется" };
+  applying.add(device);
+  const step = (id: BindStepId) => onStep?.(id);
+  try {
+    const bak = await pullText(device, BAK);
+    if (bak === null) {
+      return { ok: false, error: "на колонке нет runtime.env.bak-agent — вернуть исходные base_url/ключ/модель не из чего. Выберите модель вручную" };
+    }
+    const before = await adbExec(["-s", device, "shell", `sh ${APP}/control.sh status 2>&1`], 10000);
+    const oldPid = Number(before.stdout.match(/PID (\d+)/)?.[1]) || undefined;
+    const snapshot = await pullText(device, `${STATE}/runtime.env`);
+    if (snapshot === null) return { ok: false, error: "не удалось прочитать runtime.env" };
+
+    let text = snapshot;
+    for (const key of BIND_KEYS) {
+      text = dropEnvKey(text, key);
+      const raw = rawEnvLine(bak, key);
+      if (raw) text = appendLine(text, raw);
+    }
+    step("write");
+    if (!(await pushText(device, `${STATE}/runtime.env`, text))) return { ok: false, error: "adb push runtime.env не удался" };
+    const res = await checkRestartWait(device, oldPid, snapshot, step);
+    if (!res.ok) return res;
+    await adbExec(["-s", device, "shell", `rm -f ${BAK}`], 8000);
+    const model = envValue(text, "QUASAR_LLM_MODEL");
+    return { ...res, model };
+  } finally {
+    applying.delete(device);
+    statusCache.delete(device);
+  }
 }

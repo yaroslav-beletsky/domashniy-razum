@@ -13,10 +13,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ModelPicker } from "@/components/stations/model-picker";
+import { AgentBadge, AgentBind } from "@/components/stations/agent-bind";
 import { StationLog, type LocalLine } from "@/components/stations/station-log";
+import { AdbConsole } from "@/components/stations/adb-console";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StationSvg, ringTone } from "@/components/stations/station-svg";
 import { ModeBadge, StatusBadge } from "@/components/stations/status-badge";
-import { pushRecent } from "@/lib/modelNames";
+import { modelIds, pushRecent } from "@/lib/modelNames";
 import { MODE_INFO, PANEL_MODES, normalizeMode, type PanelMode } from "@/lib/modes";
 
 const MODE_ACTIVE: Record<PanelMode, string> = {
@@ -170,6 +173,12 @@ export default function StationDetailPage() {
   const [modelsLoading, setModelsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [tab, setTab] = useState<"log" | "adb">("log");
+
+  // #adb в адресе — сразу открыть консоль
+  useEffect(() => {
+    if (window.location.hash === "#adb") setTab("adb");
+  }, []);
 
   // операция «применяем…»
   const [op, setOp] = useState<{ mode?: string; model?: string } | null>(null);
@@ -211,7 +220,7 @@ export default function StationDetailPage() {
     let alive = true;
     fetch("/api/models", { cache: "no-store" })
       .then((r) => r.json())
-      .then((j) => alive && j.ok && setModels(j.models))
+      .then((j) => alive && j.ok && setModels(modelIds(j.models)))
       .catch(() => {})
       .finally(() => alive && setModelsLoading(false));
     return () => {
@@ -398,6 +407,11 @@ export default function StationDetailPage() {
             <StatusBadge state={shownState} />
             <ModeBadge mode={shownMode} muted={offline} />
           </div>
+          {s.agent && (
+            <div className="flex">
+              <AgentBadge agent={s.agent} link />
+            </div>
+          )}
           <p className="font-mono text-[11px] leading-relaxed break-words text-zinc-500">{meta.join(" · ")}</p>
         </div>
       </section>
@@ -460,6 +474,16 @@ export default function StationDetailPage() {
           />
         </div>
 
+        <AgentBind
+          station={s}
+          disabled={offline || busy}
+          onBusy={(b) => (b ? setOp({}) : setOp(null))}
+          onDone={(msg) => {
+            setToast(msg);
+            load(true);
+          }}
+        />
+
         {(busy || opError) && (
           <div className="sm:col-span-2" aria-live="polite">
             {busy && (
@@ -487,7 +511,24 @@ export default function StationDetailPage() {
         )}
       </section>
 
-      <StationLog stationId={id} local={local} offline={offline} />
+      {/* лог + ADB-консоль: держим оба смонтированными (forceMount), чтобы SSE-поток лога не рвался при переключении.
+          #adb в адресе открывает вкладку консоли (быстрый вход из закладок/QR). */}
+      <Tabs value={tab} onValueChange={(v) => setTab(v === "adb" ? "adb" : "log")}>
+        <TabsList className="h-11 w-full sm:h-9 sm:w-auto">
+          <TabsTrigger value="log" className="text-xs">
+            Живой лог
+          </TabsTrigger>
+          <TabsTrigger value="adb" className="text-xs">
+            &gt;_ ADB · {s.device}
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="log" forceMount className="mt-3">
+          <StationLog stationId={id} local={local} offline={offline} />
+        </TabsContent>
+        <TabsContent value="adb" forceMount className="mt-3">
+          <AdbConsole stationId={id} device={s.device} offline={offline} stationName={s.name} applying={busy} />
+        </TabsContent>
+      </Tabs>
 
       {/* тост */}
       {toast && (
