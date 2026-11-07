@@ -17,9 +17,8 @@ route handlers. Внутри контейнера: `adb` (android-tools) и `ssh
 - **Модели** (`/models`) — список + «тест» (`/v1/chat/completions`).
 - **Голос** (`/voice`) — health `/api/health` (опрос раз в 10 с), STT из файла,
   TTS (текст → WAV), полный круг (микрофон/файл → STT → LLM → TTS → аудио).
-- **Станции** (`/stations`) — витрина карточек колонок (кольцо-индикатор: зелёный observe, фиолетовый hybrid,
-  янтарный — рестарт/мост down, погасший — offline). `/stations/[id]` — деталь: режим `observe ↔ hybrid`
-  (мост принимает только эти два), пикер модели LiteLLM (поиск, недавние, группы, варианты), прогресс
+- **Станции** (`/stations`) — витрина карточек колонок (кольцо-индикатор: голубой «Алиса», фиолетовый «Гибрид», зелёный «LLM»,
+  янтарный — рестарт/мост down, погасший — offline). `/stations/[id]` — деталь: три режима (см. ниже), пикер модели LiteLLM (поиск, недавние, группы, варианты), прогресс
   смены с откатом при отказе, живой SSE-лог. Колонки добавляются из UI (только частные IPv4);
   реестр — `panel-stations.json` в томе `secrets/adb`, колонки из `ADB_DEVICES` удалить нельзя.
 - **Логи** (`/logs`) — SSE: `belch-voice`, `quasar-bridge`, `adb`, `panel`.
@@ -31,14 +30,33 @@ route handlers. Внутри контейнера: `adb` (android-tools) и `ssh
 | `GET /api/status` | LiteLLM + голос + станция + ключ (без секретов) |
 | `GET /api/stats?hours=24` | агрегаты из `LiteLLM_SpendLogs` |
 | `GET /api/station` | статус моста + список моделей |
-| `POST /api/station/mode` `{mode: observe\|hybrid}` | правка `runtime.env` + `config.json`, `control.sh check`, `restart` |
+| `POST /api/station/mode` `{mode: alice\|hybrid\|llm}` | то же, что `apply` без SSE (`observe` = `alice`) |
 | `GET\|POST /api/stations` | список колонок с живым статусом / добавить `{host, port?, name?, kind?}` |
 | `GET\|PATCH\|DELETE /api/stations/[id]` | колонка (`?fresh=1` — без кэша 3 с) / имя, тип / удалить (только добавленные из UI) |
-| `POST /api/stations/[id]/apply` `{mode?, model?}` | SSE-прогресс: write → check → restart → wait; при отказе файлы откатываются |
+| `POST /api/stations/[id]/apply` `{mode?: alice\|hybrid\|llm, model?}` | SSE-прогресс: write → check → restart → wait; при отказе файлы откатываются |
 | `GET /api/logs/stream?source=quasar-bridge\|adb&station=<id>` | SSE-лог конкретной колонки |
 | `POST /api/station/model` `{model}` | `QUASAR_LLM_MODEL` в `runtime.env`, `check`, `restart` |
 | `POST /api/voice/stt` / `tts` / `ask` | прокси к voice-chain (multipart `file` / JSON `{text}`) |
 | `GET /api/logs/stream?source=…` | SSE; без/с неизвестным source — одно событие `offline` |
+
+### Режимы колонки
+
+Мост сам знает только `observe` и `hybrid`; «LLM» — понятие панели. Режим в UI выводится из `mode` в `runtime.env`
+и блока `routing` в `config.json`; остальные ключи конфига при смене сохраняются (JSON-merge).
+
+| Режим | Мост | Что делает |
+|---|---|---|
+| **Алиса** | `mode=observe` | мост только проксирует в Яндекс, наша модель не участвует; `routing` и `listen_after_reply` не меняются |
+| **Гибрид** | `mode=hybrid`, 6 правил `routing`, `default_route=llm`, классификатор выключен, `listen_after_reply=false` | музыка/радио/громкость, погода, таймеры/будильники/время и умный дом → Яндекс; всё остальное и «спроси нейросеть …» → модель |
+| **LLM** | `mode=hybrid`, `rules=[]`, `default_route=llm`, `classifier.enabled=false`, `listen_after_reply=false` | всё → модель |
+
+Классификатор в «Гибриде» выключен намеренно: стандартный промпт «при сомнении выбирай yandex» уводил бы обычные
+вопросы к Алисе, а на каждую нераспознанную фразу добавился бы вызов LLM (до `timeout_ms`). Правила детерминированы
+и проверяются без колонки: `quasar-bridge -config config.json -route '<фраза>'`.
+
+`listen_after_reply=false` в «Гибрид»/«LLM»: после ответа модели микрофон не переоткрывается, иначе «хвост» уходит
+Яндексу напрямую (`route=yandex, sent=true`, без `native_route_decision`) мимо `default_route`. Цена: на следующий
+вопрос нужно снова сказать «Алиса». Изменение требует рестарта, он и так выполняется при смене режима.
 
 Смена режима/модели требует restart моста (~10–15 с): SIGHUP перечитывает только
 маршрутизацию (`routing_reloaded`), не `QUASAR_MODE`/`QUASAR_LLM_MODEL`.

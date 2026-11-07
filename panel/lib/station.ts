@@ -164,10 +164,17 @@ async function patchConfig(
 }
 
 /** Что записать в мост для режима панели. routing=undefined — блок не трогаем («Алиса»). */
-function bridgeSettings(mode: PanelMode): { bridgeMode: "observe" | "hybrid"; routing?: typeof ROUTING_LLM } {
+// listenAfterReply=false: после ответа нашей модели микрофон не переоткрывается. Иначе следующий «хвост» уходит
+// Яндексу напрямую (route=yandex, sent=true, без native_route_decision) в обход routing/default_route=llm.
+// Ответы самого Яндекса это не затрагивает (у них своё поведение). Для «Алиса» ключ не трогаем.
+function bridgeSettings(mode: PanelMode): {
+  bridgeMode: "observe" | "hybrid";
+  routing?: typeof ROUTING_LLM;
+  listenAfterReply?: boolean;
+} {
   if (mode === "alice") return { bridgeMode: "observe" };
-  if (mode === "hybrid") return { bridgeMode: "hybrid", routing: ROUTING_HYBRID };
-  return { bridgeMode: "hybrid", routing: ROUTING_LLM };
+  if (mode === "hybrid") return { bridgeMode: "hybrid", routing: ROUTING_HYBRID, listenAfterReply: false };
+  return { bridgeMode: "hybrid", routing: ROUTING_LLM, listenAfterReply: false };
 }
 
 async function restartBridge(device: string): Promise<{ ok: boolean; error?: string }> {
@@ -267,6 +274,7 @@ export async function applyBridgeChange(
       if (!a.ok) return fail(a.error ?? "не удалось записать runtime.env");
       const b = await patchConfig(device, (cfg) => {
         cfg.mode = st.bridgeMode;
+        if (st.listenAfterReply !== undefined) cfg.listen_after_reply = st.listenAfterReply;
         if (st.routing) {
           const prev = (cfg.routing && typeof cfg.routing === "object" ? cfg.routing : {}) as Record<string, unknown>;
           // сохраняем чужие поля routing (refusal и т.п.) и поля classifier (prompt, timeout_ms), подменяем наши

@@ -68,7 +68,7 @@ export async function runAgent(opts: {
   const tools: AgentToolSpec[] = await collectTools(agent);
   overheadMs = Date.now() - t0;
 
-  async function callLlm(model: string, useTools: boolean, streamFinal: boolean) {
+  async function doCall(model: string, useTools: boolean, streamFinal: boolean) {
     const base = {
       model,
       messages: conv,
@@ -82,6 +82,24 @@ export async function runAgent(opts: {
     }
     const spec = { ...base, tools: tools.map((t) => ({ type: "function", function: t.function })) };
     return streamFinal ? chatStream(spec, (d) => events.onDelta?.(d)) : chat(spec);
+  }
+
+  async function callLlm(primary: string, useTools: boolean, streamFinal: boolean) {
+    try {
+      return await doCall(primary, useTools, streamFinal);
+    } catch (e) {
+      if (agent.fallback_model && !fallbackUsed) {
+        fallbackUsed = true;
+        events.onFallback?.(primary, agent.fallback_model);
+        audit("llm.fallback", {
+          from: primary,
+          to: agent.fallback_model,
+          error: String(e).slice(0, 200),
+        }, station?.id, agent.id);
+        return doCall(agent.fallback_model, useTools, streamFinal);
+      }
+      throw e;
+    }
   }
 
   let finish: RunResult["finish"] = "answer";
@@ -102,23 +120,7 @@ export async function runAgent(opts: {
         rounds = round;
         events.onRound?.(round);
         const isLast = round === agent.max_rounds;
-        let res;
-        try {
-          res = await callLlm(agent.model, !isLast, false);
-        } catch (e) {
-          if (!fallbackUsed && agent.fallback_model) {
-            fallbackUsed = true;
-            events.onFallback?.(agent.model, agent.fallback_model);
-            audit("llm.fallback", {
-              from: agent.model,
-              to: agent.fallback_model,
-              error: String(e).slice(0, 200),
-            }, station?.id, agent.id);
-            res = await callLlm(agent.fallback_model, !isLast, false);
-          } else {
-            throw e;
-          }
-        }
+        const res = await callLlm(agent.model, !isLast, false);
 
         if (!res.toolCalls.length) {
           content = res.content;
@@ -191,9 +193,9 @@ export async function runAgent(opts: {
       }
 
       if (!answered) {
-        // budget exhausted or rounds over: final streamed call without tools
+        // budget exhausted or rounds over: final streamed call without tools (with fallback)
         try {
-          const final = await callLlm(fallbackUsed && agent.fallback_model ? agent.fallback_model : agent.model, false, true);
+          const final = await callLlm(agent.model, false, true);
           content = final.content;
         } catch (e) {
           finish = "error";

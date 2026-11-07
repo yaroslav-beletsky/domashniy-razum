@@ -34,7 +34,7 @@ export function listSecretNames(): string[] {
 }
 
 export function setSecret(name: string, value: string) {
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new Error(`bad secret name: ${name}`);
+  if (!/^[A-Za-z_][A-Za-z0-9_-]*$/.test(name)) throw new Error(`bad secret name: ${name}`);
   cache[name] = value;
   persist();
 }

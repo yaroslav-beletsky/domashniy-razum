@@ -82,6 +82,7 @@ export function stdioEnv(server: McpServerRow): Record<string, string> {
   }
   const env: Record<string, string> = {};
   for (const ref of refs) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(ref)) continue; // env names only (no dashes)
     const val = getSecret(ref);
     if (val !== undefined) env[ref] = val;
   }
