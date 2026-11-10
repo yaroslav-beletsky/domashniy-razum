@@ -45,10 +45,12 @@ json_ok() {
 
 ensure_true() {
 	key=$1
+	# формат в quasar.cfg — с пробелами вокруг ':' ("key" : "val"),
+	# поэтому двоеточие обкладываем [[:space:]]*, иначе патч молча не срабатывает
 	if grep -q "\"$key\"" "$Q"; then
-		sed -i "s#\"$key\":\"[^\"]*\"#\"$key\":\"/bin/true\"#g" "$Q"
+		sed -i "s#\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"#\"$key\" : \"/bin/true\"#g" "$Q"
 	else
-		sed -i "s#\"adbd\":{#&\"$key\":\"/bin/true\",#" "$Q"
+		sed -i "s#\"adbd\"[[:space:]]*:[[:space:]]*{#&\"$key\":\"/bin/true\",#" "$Q"
 	fi
 }
 
@@ -75,7 +77,7 @@ do_apply() {
 
 do_status() {
 	echo "== adbd-блок quasar.cfg =="
-	grep -o '"adbd":{[^}]*}' "$Q" 2>/dev/null | tr ',' '\n' | grep -E 'DeactivateCmd|ActivateCmd' | sed 's/^/  /'
+	grep -o '"adbd"[[:space:]]*:{[^}]*}' "$Q" 2>/dev/null | tr ',' '\n' | grep -E 'DeactivateCmd|ActivateCmd' | sed 's/^/  /'
 	echo "-- бэкап: $([ -s "$BK" ] && echo "$BK" || echo 'нет')"
 }
 

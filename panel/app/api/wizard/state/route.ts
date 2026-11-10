@@ -1,7 +1,9 @@
 // Состояние мастера «Добавить колонку».
 // GET  ?key=…            → один черновик (+ определения шагов и конфиг мастера)
 // GET                    → список черновиков
-// POST {action:"create", host, port?, name?, kind?}  → создать черновик (шаг 1 = выполнен)
+// POST {action:"create", host, port?, name?, kind?, prep?} → создать черновик
+//   (шаг «Поиск» = выполнен; prep.reset/prep.wifi = "done"|"skipped" — отметка
+//   шагов подготовки из диалога добавления)
 // POST {action:"update", key, name?, kind?, mode?, model?}
 // POST {action:"confirm", key, step}   → ручной шаг подтверждён: done + переход дальше
 // POST {action:"skip", key, step}      → пропустить (где skippable)
@@ -17,6 +19,7 @@ import {
   listWizardStates,
   nextStep,
   patchWizardState,
+  platformForKind,
   prevStep,
   setWizardCurrent,
   setWizardStep,
@@ -32,7 +35,8 @@ function wizardMeta() {
   return {
     steps: WIZARD_STEPS,
     standUrl: config.standBaseUrl,
-    targetFirmware: config.targetFirmware,
+    // Целевую версию прошивки мастер не хардкодит: стенд сам называет её
+    // в check_updates по платформе колонки (мини 2 → .46, Станция 2 → .50).
     subnet: config.wizardLanSubnet,
   };
 }
@@ -53,7 +57,17 @@ export async function POST(req: NextRequest) {
   const action = String(body.action ?? "");
 
   if (action === "create") {
-    const r = createWizardState(String(body.host ?? ""), body.port === undefined ? 5555 : Number(body.port), String(body.name ?? ""), String(body.kind ?? ""));
+    const rawPrep = (body.prep ?? {}) as { reset?: unknown; wifi?: unknown };
+    const normPrep = (v: unknown): "done" | "skipped" | undefined => (v === "done" || v === "skipped" ? v : undefined);
+    const prep = { reset: normPrep(rawPrep.reset), wifi: normPrep(rawPrep.wifi) };
+    const r = createWizardState(
+      String(body.host ?? ""),
+      body.port === undefined ? 5555 : Number(body.port),
+      String(body.name ?? ""),
+      String(body.kind ?? ""),
+      prep.reset || prep.wifi ? prep : undefined,
+      body.mac === undefined ? undefined : String(body.mac),
+    );
     if (!r.ok || !r.key) return NextResponse.json({ ok: false, error: r.error }, { status: 400 });
     recordEvent("system", `мастер: черновик для ${r.key}`);
     return NextResponse.json({ ok: true, key: r.key });
@@ -67,9 +81,16 @@ export async function POST(req: NextRequest) {
     case "update": {
       const patch: Record<string, unknown> = {};
       if (body.name !== undefined) patch.name = String(body.name).trim() || undefined;
-      if (body.kind !== undefined) patch.kind = String(body.kind).trim() || undefined;
+      if (body.kind !== undefined) {
+        const kind = String(body.kind).trim();
+        patch.kind = kind || undefined;
+        patch.platform = platformForKind(kind) ?? undefined;
+      }
       if (body.mode !== undefined) patch.mode = String(body.mode).trim() || undefined;
       if (body.model !== undefined) patch.model = String(body.model).trim() || undefined;
+      if (body.mac !== undefined) patch.mac = String(body.mac).trim().toLowerCase() || undefined;
+      if (body.host !== undefined) patch.host = String(body.host).trim() || undefined;
+      if (body.lastHost !== undefined) patch.lastHost = String(body.lastHost).trim() || undefined;
       const err = patchWizardState(key, patch);
       return err ? NextResponse.json({ ok: false, error: err }, { status: 500 }) : NextResponse.json({ ok: true });
     }

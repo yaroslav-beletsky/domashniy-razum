@@ -12,7 +12,8 @@ route handlers. Внутри контейнера: `adb` (android-tools) и `ssh
 
 ## Экраны
 
-Три раздела: **Колонки** (`/stations`), **Агент** (`/agent`), **Мастер** (`/add-station`).
+Три раздела: **Колонки** (`/stations`), **Агент** (`/agent`), **Монитор** (`/monitor`);
+мастер добавления — кнопка «+» на странице колонок (`/add-station`).
 Старые адреса (`/`, `/agents*`, `/models`, `/voice`, `/logs`) редиректят. Статусные чипы
 (LiteLLM/голос/станция/ключ) — в шапке на любой странице.
 
@@ -32,6 +33,13 @@ route handlers. Внутри контейнера: `adb` (android-tools) и `ssh
   Внизу — **Диагностика** (дисклоузеры, бывшие отдельные страницы): статистика LiteLLM за 24 ч (БД spend logs),
   модели + тест latency, голосовая цепочка (STT/TTS/полный круг), живые SSE-логи (belch-voice/мост/adb/панель),
   лента событий.
+- **Монитор** (`/monitor`) — живой `tail -f` без терминала (тот же SSE-вижер, что в «Диагностике»,
+  по умолчанию открыт стенд). Источники:
+  - **Стенд · lite-kit (.23)** — `~/Documents/home/lite-kit/log/server.log`, ssh `tail -f` из контейнера
+    (тот же read-only ключ, что у лога belch-voice; путь — `STAND_LOG_SSH_PATH`);
+  - **Агент · agent-service (.207)** — лента audit-событий (`agent.run`/`proxy`/`tool.call`/`llm.*`)
+    через готовый `GET /admin/audit`, опрос 2 с (docker-сокет в панель не монтируется);
+  - **belch-voice / Мост (quasar-bridge) / ADB / Панель** — прежние источники.
 - **Мастер** (`/add-station`) — пошаговая настройка «нулевой» колонки до полного контроля (ветка A,
   см. `docs/add-station-wizard.md`): поиск в LAN (TCP-скан :5555), черновик с прогрессом (13 шагов,
   персистентно в `panel-wizard.json`), ручные шаги — инструкция + «Готово», автошаги — кнопка «Выполнить»
@@ -109,6 +117,7 @@ route handlers. Внутри контейнера: `adb` (android-tools) и `ssh
 | `AGENT_SERVICE_URL` | agent-service из контейнера, по умолчанию `http://host.docker.internal:4100` |
 | `AGENT_PUBLIC_BASE` | base_url, который прописывается колонке, `http://192.168.88.207:4100/v1` |
 | `VOICE_LOG_SSH_TARGET` / `_KEY` / `_PATH` | ssh-tail лога voice-chain на .23 |
+| `STAND_LOG_SSH_PATH` | путь к логу стенда lite-kit на .23 (источник «Стенд» в мониторе; ключ тот же, что у `VOICE_LOG_SSH_*`) |
 | `WIZARD_BRIDGE_FORK_DIST` | каталог форк-бандла моста внутри контейнера, `/opt/station-setup/quasar-bridge-fork/dist`; пусто = всегда апстрим с GitHub |
 | `WIZARD_BRIDGE_VOICE` | голос ответа моста-форка: `ermil` (мужской, по умолчанию) \| `zahar` \| `oksana` \| `jane` \| `shitova` \| `omazh`; пишется в `/data/opt/quasar-bridge/tts.override`, откат — `rm tts.override` |
 | `WIZARD_BRIDGE_VERSION` | версия апстрим-релиза GitHub для фолбэка, `0.7.4` |

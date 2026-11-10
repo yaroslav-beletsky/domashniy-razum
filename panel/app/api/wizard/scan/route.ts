@@ -1,4 +1,4 @@
-// Сканер колонок в LAN (шаг 1 мастера). POST {subnet?} → SSE:
+// Сканер колонок в LAN (шаг «Поиск» мастера). POST {subnet?} → SSE:
 //   {type:"progress", scanned, total} · {type:"host", ip, known} · {type:"done", candidates}
 // Контейнер видит LAN через NAT (colima), поэтому скан TCP; ARP/MAC-вендор и mDNS изнутри
 // недоступны. NAT бывает «тугим» — скан идёт в 4 прохода: реестр (щедрый таймаут), :5555 с

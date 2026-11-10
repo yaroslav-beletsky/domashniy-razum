@@ -14,10 +14,12 @@ import { KIND_LABEL, parseLogLine, prettyRaw, type LogLevel, type ParsedLogEvent
 
 const SOURCES = [
   { id: "", label: "— не выбран —" },
+  { id: "stand", label: "Стенд · lite-kit (.23)" },
+  { id: "agent", label: "Агент · agent-service (.207)" },
   { id: "belch-voice", label: "belch-voice (STT/TTS)" },
-  { id: "quasar-bridge", label: "quasar-bridge (мост)" },
-  { id: "adb", label: "adb · tail -f" },
-  { id: "panel", label: "panel" },
+  { id: "quasar-bridge", label: "Мост колонки (quasar-bridge)" },
+  { id: "adb", label: "ADB · tail -f" },
+  { id: "panel", label: "Панель · события" },
 ] as const;
 
 const LEVEL_STYLE: Record<LogLevel, string> = {
@@ -31,8 +33,8 @@ function timeStr(ts: number): string {
   return new Date(ts).toLocaleTimeString("ru-RU", { hour12: false });
 }
 
-export function LogsViewer() {
-  const [source, setSource] = useState<string>("");
+export function LogsViewer({ initialSource = "" }: { initialSource?: string }) {
+  const [source, setSource] = useState<string>(initialSource);
   const [events, setEvents] = useState<ParsedLogEvent[]>([]);
   const [status, setStatus] = useState<{ online: boolean; detail?: string } | null>(null);
   const [paused, setPaused] = useState(false);

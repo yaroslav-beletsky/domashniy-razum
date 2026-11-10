@@ -13,8 +13,13 @@ case "${1:-start}" in
 		if ! pidof adbd >/dev/null 2>&1; then
 			/usr/bin/adbd &
 		fi
+		# Сторож: держит adbd/:5555 живыми не только на загрузке (S98adbd сам по себе
+		# отрабатывает один раз). Живёт в /data/opt, идемпотентен по pidfile.
+		sh /data/opt/adbd-watchdog.sh >/dev/null 2>&1 &
 		;;
 	stop)
+		[ -f /var/run/adbd-watchdog.pid ] && kill "$(cat /var/run/adbd-watchdog.pid 2>/dev/null)" 2>/dev/null
+		rm -f /var/run/adbd-watchdog.pid
 		killall adbd 2>/dev/null
 		;;
 	restart)

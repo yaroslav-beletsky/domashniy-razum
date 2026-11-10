@@ -45,31 +45,14 @@ export interface WizardStepDef {
   todo?: string;
 }
 
+// Порядок: сначала физика руками владельца (сброс → Wi-Fi), затем автоматика
+// (поиск → стенд → прошивка → adb → мост → закрепление → статика → noupdate →
+// режим → регистрация → тест). Черновики хранят статусы по id шага, а не по
+// индексу — перестановка списка безопасна для существующих черновиков.
 export const WIZARD_STEPS: WizardStepDef[] = [
   {
-    id: "discover",
-    n: 1,
-    title: "Найти колонку в сети",
-    hint: "Найду колонку в вашей сети. Ничего делать не нужно — просто выберите её из списка найденных (или введите адрес вручную).",
-    kind: "auto",
-    skippable: false,
-    estMin: 1,
-    criteria: "Устройство найдено, адрес известен, тип опознан.",
-  },
-  {
-    id: "stand",
-    n: 2,
-    title: "Стенд с откатной прошивкой",
-    hint: "Готовлю сервер настройки, чтобы колонка сама поставила нужную версию. Проверяю, что стенд отвечает, DNS ведёт нужные домены на стенд, сертификат выстроен в доверенную цепочку и прошивка .46 на месте.",
-    kind: "auto",
-    skippable: false,
-    estMin: 1,
-    criteria: "Стенд отвечает: adbd включён в get_sync_info; quasar.yandex.net через DHCP-резолвер → стенд; сертификат eMudhra-цепочка; check_updates → hasUpdate с прошивкой .46.",
-    rollback: "Снять подмену доменов на промежуточном резолвере (вернуть настоящий DNS).",
-  },
-  {
     id: "reset",
-    n: 3,
+    n: 1,
     title: "Сброс к заводским",
     hint: "Обесточьте колонку. Зажмите кнопку микрофона, подайте питание и держите 10–15 секунд, пока не мигнёт подсветка и голос не скажет о сбросе. Потом жмите «Готово».",
     kind: "manual",
@@ -80,24 +63,45 @@ export const WIZARD_STEPS: WizardStepDef[] = [
   },
   {
     id: "bindwifi",
-    n: 4,
+    n: 2,
     title: "Привязка и Wi-Fi",
     hint: "В приложении вендора добавьте колонку и дайте ей ваш Wi-Fi (сеть с нашим DNS). Жмите «Готово», когда она доедет до сети.",
     kind: "manual",
     skippable: true,
     estMin: 5,
     criteria: "Колонка привязана, в сети; домен активации указывает на стенд.",
-    rollback: "Сбросить привязку и начать с шага 3.",
+    rollback: "Сбросить привязку и начать с шага «Сброс».",
+  },
+  {
+    id: "discover",
+    n: 3,
+    title: "Найти колонку в сети",
+    hint: "Найду колонку в вашей сети. Ничего делать не нужно — просто выберите её из списка найденных (или введите адрес вручную).",
+    kind: "auto",
+    skippable: false,
+    estMin: 1,
+    criteria: "Устройство найдено, адрес известен, тип опознан.",
+  },
+  {
+    id: "stand",
+    n: 4,
+    title: "Стенд с откатной прошивкой",
+    hint: "Готовлю сервер настройки, чтобы колонка сама поставила нужную версию. Проверяю, что стенд отвечает, DNS ведёт нужные домены на стенд, сертификат выстроен в доверенную цепочку и активационная прошивка для модели колонки на месте.\n\nDNS: домены quasar.yandex.net, quasar.yandex.ru, scbh.yandex.net должны резолвиться на IP стенда (через DHCP-резолвер, который получит колонка). Если все уже резолвятся — «DNS настроен, прописывать ничего не нужно». Иначе — пропишите на своём роутере/резолвере форвард этих доменов на IP стенда.",
+    kind: "auto",
+    skippable: false,
+    estMin: 1,
+    criteria: "Стенд отвечает: adbd включён в get_sync_info; quasar.yandex.net / quasar.yandex.ru / scbh.yandex.net через DHCP-резолвер → IP стенда; сертификат eMudhra-цепочка; check_updates → hasUpdate: стенд сам называет версию для модели колонки.",
+    rollback: "Снять подмену доменов на промежуточном резолвере (вернуть настоящий DNS).",
   },
   {
     id: "ota",
     n: 5,
     title: "Прошивка нужной версии",
-    hint: "Колонка сама скачает и поставит нужную версию с нашего стенда (обычно 3–10 минут). Просто не выключайте её. Я сам жду появления adb и проверяю версию; если ещё не готово — подождите пару минут и нажмите «Повторить».",
+    hint: "Колонка сама скачает и поставит нужную версию с нашего стенда (обычно 3–10 минут). Просто не выключайте её. Я сам жду появления adb и сверяю версию с той, что отдаёт стенд для модели колонки; если ещё не готово — подождите пару минут и нажмите «Повторить».",
     kind: "semi",
     skippable: true,
     estMin: 10,
-    criteria: "Прошивка = целевая (.46); колонка перезагрузилась.",
+    criteria: "Прошивка = версия, которую стенд отдаёт для модели колонки; колонка перезагрузилась.",
     rollback: "Снять hasUpdate на стенде / вернуть штатный ключ (пока обновления не заблокированы).",
   },
   {
@@ -189,12 +193,26 @@ export const WIZARD_STEPS: WizardStepDef[] = [
     skippable: true,
     estMin: 2,
     criteria: "Колонка ответила нашим агентом/моделью; в логе нет ухода в облако по умолчанию.",
-    rollback: "Переключить режим (шаг 11).",
+    rollback: "Переключить режим (шаг «Режим»).",
   },
 ];
 
 export const STEP_BY_ID = new Map(WIZARD_STEPS.map((s) => [s.id, s]));
 export const STEP_ORDER: WizardStepId[] = WIZARD_STEPS.map((s) => s.id);
+
+/** Платформа активационной прошивки по типу колонки. Стенд сам решает, какую
+ *  версию отдать по platform (мини 2 → .46, Станция 2 → .50), поэтому мастер
+ *  НЕ хардкодит версию — целевую версию называет стенд в check_updates. */
+export const KIND_PLATFORM: Record<string, string> = {
+  mini: "yandexmini_2",
+  station2: "yandexmidi",
+};
+
+/** Платформа по типу; null — тип не отображён на известную платформу
+ *  (в exec-скриптах fallback на config.wizardPlatform). */
+export function platformForKind(kind?: string): string | null {
+  return (kind && KIND_PLATFORM[kind]) || null;
+}
 
 export function nextStep(id: WizardStepId): WizardStepId | null {
   const i = STEP_ORDER.indexOf(id);
@@ -214,11 +232,18 @@ export interface StepState {
 }
 
 export interface WizardState {
-  key: string; // host:port
+  key: string; // host:port — фиксированный ключ черновика, не меняется при переезде
   host: string;
   port: number;
+  /** MAC колонки (нижний регистр) — по нему мастер пере-резолвит текущий IP, если адрес сменился. */
+  mac?: string;
+  /** Предыдущий адрес (до переезда) — только для журнала/диагностики. */
+  lastHost?: string;
   name?: string;
   kind?: string;
+  /** Платформа активационной прошивки (yandexmini_2 / yandexmidi / …) — по типу
+   *  колонки; стенд по ней сам называет целевую версию. */
+  platform?: string;
   current: WizardStepId;
   steps: Record<string, StepState>;
   log: { ts: number; level: "info" | "ok" | "err"; text: string }[];
@@ -260,6 +285,15 @@ export function listWizardStates(): WizardState[] {
 
 export function getWizardState(key: string): WizardState | null {
   return readAll()[key] ?? null;
+}
+
+/** Состояние черновика по ключу ЛИБО по текущему адресу колонки (если адрес «переехал»).
+ *  Нужно шагам, которые получили уже пере-резолвленный device вместо исходного ключа. */
+export function getWizardStateAny(addr: string): WizardState | null {
+  const all = readAll();
+  if (all[addr]) return all[addr];
+  const host = addr.split(":")[0];
+  return Object.values(all).find((s) => s.host === host || s.key.split(":")[0] === host) ?? null;
 }
 
 export function appendWizardLog(key: string, level: "info" | "ok" | "err", text: string): void {
@@ -304,23 +338,37 @@ export function deleteWizardState(key: string): void {
   writeAll(states);
 }
 
-/** Создаёт черновик мастера для колонки. Шаг 1 (discover) считается выполненным — адрес выбран. */
-export function createWizardState(host: string, port?: number | string, name?: string, kind?: string): { ok: boolean; key?: string; error?: string } {
+/** Создаёт черновик мастера для колонки. Шаг «Поиск» (discover) считается выполненным —
+ *  адрес выбран. Шаги подготовки (сброс/Wi-Fi) отмечаются по ответу диалога добавления:
+ *  prep.reset / prep.wifi = "done" | "skipped" | undefined (не трогать). */
+export function createWizardState(
+  host: string,
+  port?: number | string,
+  name?: string,
+  kind?: string,
+  prep?: { reset?: "done" | "skipped"; wifi?: "done" | "skipped" },
+  mac?: string,
+): { ok: boolean; key?: string; error?: string } {
   const p = parseDevice(host, port ?? 5555);
   if (!p.device) return { ok: false, error: p.error ?? "некорректный адрес" };
   const states = readAll();
   if (states[p.device]) return { ok: false, error: "для этой колонки уже есть черновик — продолжите его" };
   const now = Date.now();
+  const steps: Record<string, StepState> = {
+    discover: { status: "done", at: now, note: "адрес выбран вручную или из списка найденных" },
+  };
+  if (prep?.reset) steps.reset = { status: prep.reset, at: now, note: prep.reset === "done" ? "подтверждено в диалоге добавления" : "пропущено в диалоге добавления" };
+  if (prep?.wifi) steps.bindwifi = { status: prep.wifi, at: now, note: prep.wifi === "done" ? "подтверждено в диалоге добавления" : "пропущено в диалоге добавления" };
   states[p.device] = {
     key: p.device,
     host: host.trim(),
     port: Number(port ?? 5555) || 5555,
+    mac: mac?.trim().toLowerCase() || undefined,
     name: name?.trim() || undefined,
     kind: kind?.trim() || undefined,
+    platform: platformForKind(kind?.trim() || undefined) ?? undefined,
     current: "stand",
-    steps: {
-      discover: { status: "done", at: now, note: "адрес выбран вручную или из списка найденных" },
-    },
+    steps,
     log: [{ ts: now, level: "info", text: `черновик создан для ${p.device}` }],
     createdAt: now,
     updatedAt: now,

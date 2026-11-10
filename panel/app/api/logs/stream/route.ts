@@ -13,8 +13,8 @@ function sseEvent(payload: unknown): Uint8Array {
 }
 
 function guessLevel(line: string): LogLevel {
-  if (/\b(error|fatal|panic|failed|failure)\b/i.test(line)) return "error";
-  if (/\b(warn|warning)\b/i.test(line)) return "warn";
+  if (/\b(error|fatal|panic|failed|failure)\b/i.test(line) || /(ошибк|не удалось|сбой|отказ)/i.test(line)) return "error";
+  if (/\b(warn|warning)\b/i.test(line) || /предупрежд/i.test(line)) return "warn";
   if (/\b(debug|trace)\b/i.test(line)) return "debug";
   return "info";
 }

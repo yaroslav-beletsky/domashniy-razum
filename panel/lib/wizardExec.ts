@@ -14,7 +14,7 @@ import { Socket } from "node:net";
 import { adbExec, adbPush } from "./adb";
 import { config, litellmApiKey } from "./config";
 import { appendLog } from "./logs";
-import { getWizardState, setWizardCurrent, setWizardStep, STEP_ORDER, type WizardState, type WizardStepId } from "./wizard";
+import { getWizardState, getWizardStateAny, patchWizardState, platformForKind, setWizardCurrent, setWizardStep, STEP_ORDER, type WizardState, type WizardStepId } from "./wizard";
 
 export type Emit = (o: Record<string, unknown>) => void;
 
@@ -160,53 +160,162 @@ export async function scanLan(subnet: string, known: Map<string, string>, emit: 
 
 // ---------- общие adb-помощники ----------
 
-async function probeAdb(device: string, emit: Emit, quiet = false): Promise<{ ok: boolean; root: boolean; firmware?: string }> {
-  if (!quiet) emit({ type: "log", level: "info", text: `подключаюсь по adb: ${device}` });
-  const id = await adbExec(["-s", device, "shell", "id"], 12000);
+/** OUI Yandex-устройств (колонки). */
+const YANDEX_OUI = "b8:87:6e";
+
+interface StandClientRow {
+  ip: string;
+  ts?: number;
+  path?: string;
+  platform?: string;
+  version?: string;
+  ua?: string;
+  mac?: string;
+}
+
+// Кэш /recent_clients со стенда: не дёргаем стенд на каждый adbExec, но и не отстаём.
+const _standCache: { at: number; rows: StandClientRow[] | null } = { at: 0, rows: null };
+const _STAND_TTL = 4000;
+// Последний показанный в UI адрес (на черновик) — чтобы не спамить событие «addr».
+const _lastAddr: Record<string, string> = {};
+
+async function fetchStandClients(): Promise<StandClientRow[] | null> {
+  if (Date.now() - _standCache.at < _STAND_TTL) return _standCache.rows;
+  _standCache.at = Date.now();
+  const r = await getJson(`${config.standBaseUrl}/recent_clients`, 6000, 1);
+  if (!r || r.status !== 200) {
+    _standCache.rows = null;
+    return null;
+  }
+  try {
+    const j = JSON.parse(r.body) as { clients?: StandClientRow[] };
+    _standCache.rows = Array.isArray(j.clients) ? j.clients : [];
+  } catch {
+    _standCache.rows = null;
+  }
+  return _standCache.rows;
+}
+
+/**
+ * Пере-резолв ТЕКУЩЕГО адреса колонки по её MAC через стенд (/recent_clients — колонка
+ * постоянно стучится туда generate_204/check_updates; MAC стенд достаёт из своего ARP).
+ * Если MAC в черновике ещё нет — эвристика: свежий generate_204 с MAC Яндекса; найденный
+ * MAC запоминаем в черновик, чтобы дальше искать надёжно. Возвращает ip БЕЗ порта либо null.
+ * Обновляет state.host/lastHost, эмитит {type:"addr"} и пишет в журнал «колонка переехала .X → .Y».
+ */
+async function resolveCurrentHost(key: string, emit: Emit, quiet = false): Promise<string | null> {
+  // key может быть уже ПЕРЕЕХАвшим адресом (шаг передаёт device = ip:port) — черновик же
+  // живёт под исходным ключом, поэтому ищем его и по ключу, и по текущему адресу/хосту.
+  const st = getWizardStateAny(key);
+  if (!st) return null;
+  const draftKey = st.key; // стабильный ключ черновика (host:port) — не меняется при переезде
+  const curHost = st.host || draftKey.split(":")[0]; // текущий адрес (обновляется на каждом переезде)
+  const rows = await fetchStandClients();
+  if (!rows || rows.length === 0) return null;
+  const now = Date.now() / 1000;
+  const fresh = rows.filter(
+    (c) => c.ip && !c.ip.startsWith("127.") && !c.ip.startsWith("0.") && now - (c.ts ?? 0) < 300,
+  );
+  if (fresh.length === 0) return null;
+
+  const mac = (st.mac ?? "").toLowerCase();
+  let hit: StandClientRow | undefined;
+  if (mac) hit = fresh.filter((c) => (c.mac ?? "").toLowerCase() === mac).sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0))[0];
+  let viaMac = Boolean(hit);
+  if (!hit) {
+    // Колонка в фазе настройки стучит /generate_204 (без platform). Среди свежих адресов с MAC
+    // Яндекса предпочитаем: generate_204, затем совпадение platform с черновиком, затем свежесть.
+    const score = (c: StandClientRow) =>
+      ((c.path ?? "").includes("generate_204") ? 2 : 0) + (st.platform && c.platform === st.platform ? 1 : 0);
+    let ynd = fresh.filter((c) => (c.mac ?? "").toLowerCase().startsWith(YANDEX_OUI));
+    if (ynd.length === 0) {
+      // Стенд без MAC (старая версия/ARP недоступен): опираемся на generate_204, затем на любые свежие.
+      const gen = fresh.filter((c) => (c.path ?? "").includes("generate_204"));
+      ynd = gen.length ? gen : fresh;
+    }
+    ynd.sort((a, b) => score(b) - score(a) || (b.ts ?? 0) - (a.ts ?? 0));
+    hit = ynd[0];
+    viaMac = false;
+  }
+  if (!hit) return null;
+
+  // узнали MAC — запоминаем в черновик, дальше поиск будет строго по нему
+  if (!mac && hit.mac) patchWizardState(draftKey, { mac: hit.mac.toLowerCase() });
+
+  const target = hit.ip;
+  const port = draftKey.split(":")[1] || String(st.port || 5555);
+  const shown = `${target}:${port}`;
+  if (hit.ip !== curHost) {
+    patchWizardState(draftKey, { host: hit.ip, lastHost: curHost });
+    logLine(draftKey, `колонка переехала ${curHost} → ${hit.ip} (${viaMac ? "по MAC" : "эвристика по стенду"})`);
+  }
+  if (!quiet || _lastAddr[draftKey] !== shown) {
+    _lastAddr[draftKey] = shown;
+    emit({ type: "addr", addr: shown, key: draftKey, host: hit.ip, prev: curHost, viaMac, quiet });
+  }
+  return hit.ip;
+}
+
+/** Адрес для adb: `ip:port`, свежий по MAC/стенду; при неудаче резолва — исходный ключ. */
+async function resolveTarget(key: string, emit: Emit, quiet = false): Promise<string> {
+  const ip = await resolveCurrentHost(key, emit, quiet);
+  if (!ip) return key;
+  const port = key.split(":")[1] || "5555";
+  return `${ip}:${port}`;
+}
+
+async function probeAdb(device: string, emit: Emit, quiet = false): Promise<{ ok: boolean; root: boolean; firmware?: string; device: string }> {
+  const target = await resolveTarget(device, emit, quiet);
+  if (!quiet && target !== device) emit({ type: "log", level: "info", text: `адрес колонки: ${device} → ${target}` });
+  else if (!quiet) emit({ type: "log", level: "info", text: `подключаюсь по adb: ${target}` });
+  const id = await adbExec(["-s", target, "shell", "id"], 12000);
   if (!id.ok || !id.stdout.trim()) {
-    if (!quiet) emit({ type: "check", id: "adb", ok: false, text: `adb не отвечает (${device})` });
-    return { ok: false, root: false };
+    if (!quiet) emit({ type: "check", id: "adb", ok: false, text: `adb не отвечает (${target})` });
+    return { ok: false, root: false, device: target };
   }
   const root = /uid=0\(root\)/.test(id.stdout);
-  if (!quiet) emit({ type: "check", id: "adb", ok: true, text: root ? "adb жив, root есть (uid=0)" : "adb жив, root НЕТ" });
+  if (!quiet) emit({ type: "check", id: "adb", ok: true, text: root ? `adb жив, root есть (uid=0) — ${target}` : `adb жив, root НЕТ (${target})` });
   let firmware: string | undefined;
   for (const f of ["/system/vendor/quasar/version_full", "/system/vendor/quasar/VERSION"]) {
-    const r = await adbExec(["-s", device, "shell", `cat ${f} 2>/dev/null`], 8000);
+    const r = await adbExec(["-s", target, "shell", `cat ${f} 2>/dev/null`], 8000);
     if (r.ok && r.stdout.trim()) {
       firmware = r.stdout.trim().split("\n")[0].slice(0, 60);
       break;
     }
   }
   if (firmware && !quiet) emit({ type: "check", id: "fw", ok: true, text: `прошивка: ${firmware}` });
-  return { ok: true, root, firmware };
+  return { ok: true, root, firmware, device: target };
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * Ожидание появления колонки по adb (после сброса/OTA/перезагрузки она исчезает на минуты).
- * Возвращает первый успешный probe. emitProgress — сообщения о попытках в SSE-журнал.
+ * НА КАЖДОЙ итерации адрес пере-резолвится по MAC/стенду: если колонка «переехала» на новый
+ * IP (DHCP/статика), подключение уходит на новый адрес без перезапуска шага.
+ * Возвращает первый успешный probe (с актуальным device).
  */
-async function waitAdb(device: string, emit: Emit, totalMs: number, intervalMs = 7000): Promise<{ ok: boolean; root: boolean; firmware?: string }> {
+async function waitAdb(device: string, emit: Emit, totalMs: number, intervalMs = 7000): Promise<{ ok: boolean; root: boolean; firmware?: string; device: string }> {
   const deadline = Date.now() + totalMs;
   let attempt = 0;
   for (;;) {
     attempt++;
-    const p = await probeAdb(device, emit, true);
+    const p = await probeAdb(device, emit, attempt > 1);
     if (p.ok) return p;
     if (Date.now() >= deadline) return p;
     if (attempt % 3 === 1) {
       const left = Math.round((deadline - Date.now()) / 1000);
-      emit({ type: "log", level: "info", text: `adb пока не отвечает (попытка ${attempt}) — жду, осталось ~${left} с…` });
+      emit({ type: "log", level: "info", text: `adb пока не отвечает на ${p.device} (попытка ${attempt}) — жду, осталось ~${left} с…` });
     }
     await sleep(Math.min(intervalMs, Math.max(1000, deadline - Date.now())));
   }
 }
 
 /** Перезагрузка колонки и ожидание возврата adb (критерий «поднялось само»). */
-async function rebootAndWait(device: string, emit: Emit, totalMs = 120000): Promise<{ ok: boolean; root: boolean; firmware?: string }> {
+async function rebootAndWait(device: string, emit: Emit, totalMs = 120000): Promise<{ ok: boolean; root: boolean; firmware?: string; device: string }> {
   emit({ type: "log", level: "info", text: "перезагружаю колонку и жду возврата adb…" });
-  const r = await adbExec(["-s", device, "reboot"], 15000);
+  const target = await resolveTarget(device, emit, true);
+  const r = await adbExec(["-s", target, "reboot"], 15000);
   if (!r.ok) emit({ type: "log", level: "info", text: "команда reboot не подтвердилась (возможно, связь уже оборвалась) — продолжаю ждать устройство" });
   await sleep(12000); // даём колонке уйти в перезагрузку
   const p = await waitAdb(device, emit, totalMs);
@@ -303,12 +412,14 @@ function checkStandCert(host: string, servername: string, timeoutMs = 6000): Pro
 }
 
 /**
- * Шаг 2: проверка стенда lite-kit по HTTPS. Проверяется всё, на чём держится пост-сброс путь:
+ * Шаг 4: проверка стенда lite-kit по HTTPS. Проверяется всё, на чём держится пост-сброс путь:
  * конфиг с adbd, DNS-цепочка до стенда (через DHCP-резолвер, который получит колонка),
- * TLS-цепочка и наличие целевой прошивки в check_updates — запросом «как колонка»
+ * TLS-цепочка и наличие активационной прошивки в check_updates — запросом «как колонка»
  * (device_id+platform, иначе стенд честно отвечает `{"status":"ok"}` без hasUpdate).
+ * Версию прошивки мастер НЕ хардкодит: стенд сам называет целевую по platform
+ * (мини 2 → .46, Станция 2/yandexmidi → .50).
  */
-export async function runStandCheck(emit: Emit): Promise<{ ok: boolean; error?: string; note?: string }> {
+export async function runStandCheck(platform: string, emit: Emit): Promise<{ ok: boolean; error?: string; note?: string }> {
   const base = config.standBaseUrl;
   const standHost = base.replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/:\d+$/, "");
   const targetDomain = "quasar.yandex.net";
@@ -318,7 +429,7 @@ export async function runStandCheck(emit: Emit): Promise<{ ok: boolean; error?: 
   const sync = await getJson(`${base}/get_sync_info`);
   if (!sync || sync.status !== 200) {
     emit({ type: "check", id: "sync", ok: false, text: `стенд не отвечает на /get_sync_info (${base})` });
-    return { ok: false, error: `стенд ${base} не отвечает. На хосте стенда поднимите lite-kit: cd ~/Documents/home/lite-kit && ./start.sh (автозапуск — LaunchDaemon ru.yaroslav.lite-kit)` };
+    return { ok: false, error: `стенд ${base} не отвечает. На хосте стенда поднимите lite-kit: cd ~/lite-kit && ./start.sh (автозапуск — LaunchDaemon ru.yaroslav.lite-kit)` };
   }
   let syncOk = false;
   try {
@@ -333,28 +444,37 @@ export async function runStandCheck(emit: Emit): Promise<{ ok: boolean; error?: 
     ok: syncOk,
     text: syncOk ? "get_sync_info: adbd.remoteActivation=true — колонка получит доступ к железу" : "get_sync_info отвечает, но adbd НЕ включён в конфиге",
   });
-  if (!syncOk) return { ok: false, error: "стенд отвечает, но не отдаёт adbd в конфиге — на хосте стенда: touch ~/Documents/home/lite-kit/run/sync_proxy и перезапуск start.sh" };
+  if (!syncOk) return { ok: false, error: "стенд отвечает, но не отдаёт adbd в конфиге — на хосте стенда: touch ~/lite-kit/run/sync_proxy и перезапуск start.sh" };
 
-  // 2. DNS-цепочка: промежуточный DHCP-резолвер должен вести quasar-домены на стенд
+  // 2. DNS-цепочка: промежуточный DHCP-резолвер должен вести quasar-домены на стенд.
+  //    Проверяем все три домена, нужные колонке: quasar.yandex.net, quasar.yandex.ru, scbh.yandex.net.
+  const QUASAR_DOMAINS = ["quasar.yandex.net", "quasar.yandex.ru", "scbh.yandex.net"];
   let dnsOk = false;
+  const dnsResults: { domain: string; ok: boolean; ips: string }[] = [];
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(standHost)) {
-    const viaResolver = await resolveVia(config.wizardDnsResolver, targetDomain);
-    const onStand = await resolveVia(standHost, targetDomain);
-    const viaOk = viaResolver.includes(standHost);
-    const standOk = onStand.includes(standHost);
-    dnsOk = viaOk && standOk;
+    for (const domain of QUASAR_DOMAINS) {
+      const viaResolver = await resolveVia(config.wizardDnsResolver, domain);
+      const onStand = await resolveVia(standHost, domain);
+      const viaOk = viaResolver.includes(standHost);
+      const standOk = onStand.includes(standHost);
+      const ok = viaOk && standOk;
+      dnsResults.push({ domain, ok, ips: viaResolver.join(", ") || "—" });
+    }
+    dnsOk = dnsResults.every((r) => r.ok);
+    const okList = dnsResults.filter((r) => r.ok).map((r) => r.domain);
+    const badList = dnsResults.filter((r) => !r.ok).map((r) => `${r.domain}→${r.ips}`);
     emit({
       type: "check",
       id: "dns",
       ok: dnsOk,
       text: dnsOk
-        ? `${targetDomain}: DHCP-резолвер ${config.wizardDnsResolver} → ${standHost}, dnsmasq стенда тоже отвечает`
-        : `${targetDomain}: цепочка DNS не сходится (через ${config.wizardDnsResolver}: ${viaResolver.join(", ") || "нет ответа"}; напрямую стенд: ${onStand.join(", ") || "нет ответа"}). Проверьте dnsmasq стенда (./start.sh) и форвард quasar-доменов на промежуточном резолвере`,
+        ? `DNS настроен, прописывать ничего не нужно: ${okList.join(", ")} → ${standHost} (резолвер ${config.wizardDnsResolver})`
+        : `DNS: ${okList.length ? okList.join(", ") + " ✓; " : ""}${badList.join("; ")} — не ведут на ${standHost} через ${config.wizardDnsResolver}. Пропишите на роутере/резолвере форвард этих доменов на ${standHost}`,
     });
   } else {
     emit({ type: "check", id: "dns", ok: false, text: `не могу проверить DNS: адрес стенда ${standHost || "?"} не является IP` });
   }
-  if (!dnsOk) return { ok: false, error: "DNS-цепочка не ведёт quasar-домены на стенд — колонка после сброса уйдёт на настоящее облако. На хосте стенда: ./start.sh; на промежуточном резолвере: форвард quasar.yandex.net/.ru и scbh.yandex.net на стенд" };
+  if (!dnsOk) return { ok: false, error: `DNS не ведёт quasar-домены на стенд ${standHost} — колонка после сброса уйдёт на настоящее облако. Пропишите на роутере/промежуточном резолвере форвард: quasar.yandex.net, quasar.yandex.ru, scbh.yandex.net → ${standHost}` };
 
   // 3. TLS: лист для quasar-домена, достроенный до eMudhra/AAA (к IP стенда, SNI как у колонки)
   const cert = await checkStandCert(standHost, targetDomain);
@@ -362,7 +482,7 @@ export async function runStandCheck(emit: Emit): Promise<{ ok: boolean; error?: 
   if (!cert.ok) return { ok: false, error: `сертификат стенда не выстроен в доверенную цепочку — ${cert.text}` };
 
   // 4. OTA: probe «как колонка» — без device_id/platform стенд отвечает без hasUpdate
-  const probeUrl = `${base}/check_updates?device_id=LP0000000000000WIZARD&platform=${config.wizardPlatform}&version=0.0.0.1`;
+  const probeUrl = `${base}/check_updates?device_id=LP0000000000000WIZARD&platform=${platform}&version=0.0.0.1`;
   const upd = await getJson(probeUrl);
   let hasUpdate = false;
   let updVersion = "";
@@ -375,56 +495,90 @@ export async function runStandCheck(emit: Emit): Promise<{ ok: boolean; error?: 
       /* не JSON */
     }
   }
-  const verOk = hasUpdate && updVersion.includes(config.targetFirmware);
+  const verOk = hasUpdate && updVersion.trim().length > 0;
   emit({
     type: "check",
     id: "updates",
     ok: verOk,
     text: verOk
-      ? `check_updates (platform=${config.wizardPlatform}): hasUpdate=true, версия ${updVersion} — колонка по OTA получит целевую прошивку`
+      ? `check_updates (platform=${platform}): hasUpdate=true, стенд отдаёт версию ${updVersion} — колонка по OTA получит её`
       : hasUpdate
-        ? `check_updates отдал hasUpdate=true, но версия «${updVersion || "?"}» ≠ целевой ${config.targetFirmware} — в firmware/ на стенде не тот образ`
-        : `check_updates: hasUpdate НЕ true — на стенде стоит run/no_downgrade или нет образа в firmware/${config.wizardPlatform}/`,
+        ? `check_updates отдал hasUpdate=true, но без версии — в firmware/${platform}/ на стенде не тот образ (проверьте manifest)`
+        : `check_updates: hasUpdate НЕ true — на стенде нет образа в firmware/${platform}/ или стоит run/no_downgrade`,
   });
   if (!verOk) {
     return {
       ok: false,
       error: hasUpdate
-        ? `на стенде не тот образ: ожидается ${config.targetFirmware} в firmware/${config.wizardPlatform}/ — положите zip и проверьте manifest`
-        : `откат прошивки выключен: на хосте стенда удалите ~/Documents/home/lite-kit/run/no_downgrade (если есть) и убедитесь, что firmware/${config.wizardPlatform}/ содержит образ ${config.targetFirmware}`,
+        ? `стенд ответил без версии для firmware/${platform}/ — положите корректный zip и проверьте manifest`
+        : `активационная прошивка для платформы ${platform} не отдаётся: на хосте стенда проверьте firmware/${platform}/ и удалите ~/lite-kit/run/no_downgrade (если есть). Если тип колонки в черновике выбран неверно — поправьте тип: платформа берётся из него`,
     };
   }
 
-  logLine(base, `стенд проверен: adbd ✓, DNS ✓, TLS ✓, hasUpdate ✓ (${updVersion || "?"})`);
-  return { ok: true };
+  logLine(base, `стенд проверен: adbd ✓, DNS ✓, TLS ✓, hasUpdate ✓ (${platform} → ${updVersion})`);
+  return { ok: true, note: `${platform} → ${updVersion}` };
+}
+
+/** «Какая версия сейчас отдаётся стендом для платформы» — единственный источник
+ *  целевой версии (никаких констант .46/.50 в мастере). null — стенд не ответил. */
+async function probeStandVersion(platform: string): Promise<{ hasUpdate: boolean; version: string } | null> {
+  const base = config.standBaseUrl;
+  const upd = await getJson(`${base}/check_updates?device_id=LP0000000000000WIZARD&platform=${platform}&version=0.0.0.1`);
+  if (!upd) return null;
+  try {
+    const j = JSON.parse(upd.body) as { hasUpdate?: boolean; version?: string };
+    return { hasUpdate: j.hasUpdate === true, version: (j.version ?? "").trim() };
+  } catch {
+    return null;
+  }
 }
 
 /** Шаг 5: проверка прошивки колонки с ОЖИДАНИЕМ: adb появляется только после OTA и перезагрузки.
- *  Ждём до ~2.5 минут внутри шага; если колонка ещё ставит прошивку — владелец жмёт «Повторить». */
-export async function runOtaCheck(device: string, emit: Emit): Promise<{ ok: boolean; error?: string; note?: string }> {
+ *  Ждём до ~2.5 минут внутри шага; если колонка ещё ставит прошивку — владелец жмёт «Повторить».
+ *  Целевую версию называет стенд для платформы колонки (констант в мастере нет); если стенд
+ *  недоступен для сверки — достаточно живых adb+root (они поднимаются только активацией со стенда). */
+export async function runOtaCheck(device: string, platform: string, emit: Emit): Promise<{ ok: boolean; error?: string; note?: string }> {
   emit({ type: "log", level: "info", text: "жду появления колонки по adb (после OTA она ставит прошивку и перезагружается, до 2.5 минут)…" });
   const p = await waitAdb(device, emit, 150000);
   if (!p.ok) {
-    return { ok: false, error: "колонка так и не поднялась по adb. Она ставит прошивку со стенда (до 10 минут): держите её включённой, подождите пару минут и нажмите «Повторить». Убедитесь, что шаги 3–4 сделаны (сброс, Wi-Fi) и стенд жив" };
+    return { ok: false, error: "колонка так и не поднялась по adb. Она ставит прошивку со стенда (до 10 минут): держите её включённой, подождите пару минут и нажмите «Повторить». Убедитесь, что шаги 1–2 сделаны (сброс, Wi-Fi) и стенд жив" };
   }
   emit({ type: "check", id: "adb", ok: true, text: "adb появился" + (p.root ? ", root есть" : "") });
   if (!p.root) return { ok: false, error: "adb есть, но root нет — это не та сборка/путь, ожидалось adbd от root" };
   const fw = p.firmware ?? "";
-  const hit = fw.includes(config.targetFirmware);
+
+  // целевую версию спрашиваем у стенда для платформы этой колонки
+  const target = await probeStandVersion(platform);
+  if (!target) {
+    emit({ type: "check", id: "fw-target", ok: true, text: `прошивка: ${fw || "неизвестна"}; стенд не ответил для сверки — adb/root живы, продолжаем (шаг закрепления всё перепроверит)` });
+    return { ok: true, note: "adb/root живы; версию сверить не с чем — стенд не ответил" };
+  }
+  if (!target.hasUpdate || !target.version) {
+    emit({ type: "check", id: "fw-target", ok: false, text: `стенд не отдаёт активационную прошивку для ${platform} (нет образа или no_downgrade) — колонка могла активироваться прошлой прошивкой` });
+    return { ok: false, error: `стенд не отдаёт прошивку для платформы ${platform}: проверьте firmware/${platform}/ на стенде. Если тип колонки в черновике выбран неверно — поправьте тип (платформа берётся из него) и нажмите «Повторить»` };
+  }
+  const hit = fw.includes(target.version);
   emit({
     type: "check",
     id: "fw-target",
     ok: hit,
-    text: hit ? `прошивка совпала с целевой (${config.targetFirmware})` : `прошивка ${fw || "неизвестна"} ≠ целевая ${config.targetFirmware}`,
+    text: hit
+      ? `прошивка совпала с версией стенда для ${platform} (${target.version})`
+      : `прошивка ${fw || "неизвестна"} ≠ версия стенда ${target.version} (${platform})`,
   });
-  if (!hit) return { ok: false, error: `прошивка ${fw || "не прочитана"} — ожидается ${config.targetFirmware}. Если OTA ещё не доехала: подождите пару минут и нажмите «Повторить»; проверьте также hasUpdate на стенде (шаг 2)` };
-  return { ok: true };
+  if (!hit)
+    return {
+      ok: false,
+      error: `прошивка ${fw || "не прочитана"} — стенд для ${platform} отдаёт ${target.version}. Если OTA ещё не доехала: подождите пару минут и нажмите «Повторить»; если колонка другой модели — поправьте тип в черновике (платформа ${platform} взята из него)`,
+    };
+  return { ok: true, note: `прошивка = версия стенда (${target.version})` };
 }
 
 /** Шаг 6: adb connect + root (с коротким ожиданием — сразу после OTA adb может флапать). */
 export async function runAdbRoot(device: string, emit: Emit): Promise<{ ok: boolean; error?: string; firmware?: string }> {
   const p = await waitAdb(device, emit, 45000);
-  if (!p.ok) return { ok: false, error: "adb не подключился. Проверьте, что колонка в сети, прошивка целевая и стенд поднимал adb (шаги 2–5); затем нажмите «Повторить»" };
+  if (!p.ok) return { ok: false, error: "adb не подключился. Проверьте, что колонка в сети, прошивка целевая и стенд поднимал adb (шаги 4–5); затем нажмите «Повторить»" };
+  device = p.device;
   emit({ type: "check", id: "adb", ok: true, text: p.root ? "adb жив, root есть (uid=0)" : "adb жив, root НЕТ" });
   if (!p.root) return { ok: false, error: "adb подключился, но root отсутствует (uid≠0). Ожидается production adbd от root на целевой прошивке" };
   if (p.firmware) emit({ type: "check", id: "fw", ok: true, text: `прошивка: ${p.firmware}` });
@@ -519,6 +673,7 @@ export async function runBridgeCheck(device: string, emit: Emit): Promise<{ ok: 
   const p = await probeAdb(device, emit);
   if (!p.ok) return { ok: false, error: "adb не отвечает" };
   if (!p.root) return { ok: false, error: "root отсутствует — сначала шаг 6" };
+  device = p.device;
   const st = await adbExec(["-s", device, "shell", "sh /data/opt/quasar-bridge/app/control.sh status 2>&1"], 12000);
   const out0 = (st.stdout + st.stderr).trim();
   const m0 = out0.match(/Bridge healthy \(PID (\d+)\)/);
@@ -619,7 +774,7 @@ export async function runBridgeCheck(device: string, emit: Emit): Promise<{ ok: 
   logLine(device, `бандл моста: ${srcLabel}`);
 
   // --- настройки моста из черновика ---
-  const wz = getWizardState(device);
+  const wz = getWizardStateAny(device);
   const mode = wz?.mode || "hybrid";
   const model = wz?.model || config.bridgeDefaultModel;
   const apiKey = litellmApiKey();
@@ -722,6 +877,7 @@ export async function runPersist(device: string, emit: Emit): Promise<{ ok: bool
   const p = await probeAdb(device, emit);
   if (!p.ok) return { ok: false, error: "adb не отвечает" };
   if (!p.root) return { ok: false, error: "нужен root" };
+  device = p.device;
 
   const dir = config.stationSetupDir;
   const need = ["patch-quasar-cfg-adbd.sh", "S98adbd", "doh-block.sh"];
@@ -852,6 +1008,7 @@ export async function runStaticIpCheck(device: string, emit: Emit): Promise<{ ok
   const p = await probeAdb(device, emit);
   if (!p.ok) return { ok: false, error: "adb не отвечает" };
   if (!p.root) return { ok: false, error: "нужен root" };
+  device = p.device;
   const standHost = config.standBaseUrl.replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/:\d+$/, "");
 
   const [ipOut, gwOut, dhcpOut] = await Promise.all([
@@ -939,6 +1096,7 @@ export async function runNoupdate(device: string, host: string, emit: Emit): Pro
   const p = await waitAdb(device, emit, 30000);
   if (!p.ok) return { ok: false, error: "adb не отвечает — блокировать обновления надо сразу, пока доступ жив. Подождите минуту (колонка могла ещё подниматься) и нажмите «Повторить»" };
   if (!p.root) return { ok: false, error: "нужен root" };
+  device = p.device;
 
   const dir = config.stationSetupDir;
   if (!fs.existsSync(path.join(dir, "yandex-noupdate.sh"))) {
@@ -978,6 +1136,7 @@ export async function runNoupdate(device: string, host: string, emit: Emit): Pro
 export async function runTestCheck(device: string, emit: Emit): Promise<{ ok: boolean; error?: string; llmLines: number }> {
   const p = await probeAdb(device, emit);
   if (!p.ok) return { ok: false, error: "adb не отвечает", llmLines: 0 };
+  device = p.device;
   const tail = await adbExec(["-s", device, "shell", "tail -n 80 /data/opt/quasar-bridge/service.log 2>/dev/null"], 12000);
   const lines = (tail.stdout || "").split("\n").filter((l) => l.trim());
   let llmLines = 0;
@@ -1010,23 +1169,31 @@ export async function runClassify(st: WizardState, emit: Emit): Promise<{ ok: bo
   if (!p.ok) {
     // adb нет — «нулевая» колонка: полный путь от сброса
     skip("ota", "проверка невозможна без adb — прогоним после появления доступа");
-    emit({ type: "log", level: "info", text: "колонка «нулевая»: стартую с шага 3 (сброс). Стенд должен быть жив до привязки" });
+    emit({ type: "log", level: "info", text: "колонка «нулевая»: стартую с шага «Сброс» (1). Стенд должен быть жив до привязки" });
     finishClassify(device);
     return { ok: true };
   }
   if (!p.root) return { ok: false, error: "adb есть, но root нет — мастер такое состояние не классифицирует (ожидается либо «нулевая», либо root)" };
+  const dev = p.device;
 
   done("adbroot", "adb/root уже живы");
   skip("reset", "не нужен: adb уже жив");
   skip("bindwifi", "не нужно: колонка уже в сети");
-  if (p.firmware && p.firmware.includes(config.targetFirmware)) done("ota", `прошивка уже целевая (${p.firmware})`);
+  // целевую версию прошивки называет стенд для платформы колонки (не константа)
+  const platform = st.platform ?? platformForKind(st.kind) ?? config.wizardPlatform;
+  const target = await probeStandVersion(platform);
+  if (p.firmware && target?.hasUpdate && target.version && p.firmware.includes(target.version))
+    done("ota", `прошивка уже = версия стенда (${target.version})`);
+  else if (!target) emit({ type: "log", level: "info", text: "стенд не ответил — сверку версии прошивки сделает шаг «Прошивка» (5)" });
+  else if (!target.hasUpdate || !target.version)
+    emit({ type: "check", id: "ota", ok: false, text: `стенд не отдаёт прошивку для ${platform} — шаг «Прошивка» (5) покажет ошибку подробнее` });
 
   const [bridge, markers, cfg, noup, doh] = await Promise.all([
-    adbExec(["-s", device, "shell", "sh /data/opt/quasar-bridge/app/control.sh status 2>&1"], 12000),
-    adbExec(["-s", device, "shell", "lsattr /data/quasar/activate_* /data/quasar_activate_* 2>/dev/null"], 10000),
-    adbExec(["-s", device, "shell", "grep -o '/bin/true' /system/vendor/quasar/quasar.cfg 2>/dev/null | wc -l"], 10000),
-    adbExec(["-s", device, "shell", "sh /data/opt/yandex-noupdate.sh status 2>&1"], 15000),
-    adbExec(["-s", device, "shell", "iptables -S OUTPUT 2>/dev/null | grep -c REJECT"], 10000),
+    adbExec(["-s", dev, "shell", "sh /data/opt/quasar-bridge/app/control.sh status 2>&1"], 12000),
+    adbExec(["-s", dev, "shell", "lsattr /data/quasar/activate_* /data/quasar_activate_* 2>/dev/null"], 10000),
+    adbExec(["-s", dev, "shell", "grep -o '/bin/true' /system/vendor/quasar/quasar.cfg 2>/dev/null | wc -l"], 10000),
+    adbExec(["-s", dev, "shell", "sh /data/opt/yandex-noupdate.sh status 2>&1"], 15000),
+    adbExec(["-s", dev, "shell", "iptables -S OUTPUT 2>/dev/null | grep -c REJECT"], 10000),
   ]);
   const bridgeOk = /Bridge healthy \(PID/.test(bridge.stdout);
   if (bridgeOk) done("bridge", "мост уже healthy");
@@ -1043,7 +1210,7 @@ export async function runClassify(st: WizardState, emit: Emit): Promise<{ ok: bo
   if (/защищён|active|подмен|заглуш/i.test(noup.stdout + noup.stderr)) done("noupdate", "обновления уже заблокированы");
   else emit({ type: "check", id: "noupdate", ok: false, text: "блокировки обновлений нет — шаг 10 обязателен (сразу после закрепления)" });
 
-  const dhcpcd = await adbExec(["-s", device, "shell", "grep -c 'static ip_address' /etc/dhcpcd.conf 2>/dev/null"], 8000);
+  const dhcpcd = await adbExec(["-s", dev, "shell", "grep -c 'static ip_address' /etc/dhcpcd.conf 2>/dev/null"], 8000);
   if (Number((dhcpcd.stdout || "").trim()) > 0) done("staticip", "статический адрес уже прописан");
 
   emit({ type: "log", level: "ok", text: "классификация готова: выполненные шаги отмечены, продолжайте с первого невыполненного" });

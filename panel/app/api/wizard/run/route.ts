@@ -14,7 +14,7 @@ import { addStation, deviceToId, listStations, updateStation } from "@/lib/stati
 import { agentFetch, resolveDefaultAgent } from "@/lib/agentApi";
 import { bindAgent, ensureSvcStation, mintKey } from "@/lib/agentBind";
 import { connectStationAgent } from "@/lib/station";
-import { getWizardState, nextStep, setWizardCurrent, setWizardStep, STEP_BY_ID, type WizardStepId } from "@/lib/wizard";
+import { getWizardState, nextStep, platformForKind, setWizardCurrent, setWizardStep, STEP_BY_ID, type WizardStepId } from "@/lib/wizard";
 import {
   runAdbRoot,
   runBridgeCheck,
@@ -43,6 +43,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "ручной шаг подтверждается кнопкой «Готово»" }, { status: 400 });
   }
   const device = st.key;
+  // платформа активационной прошивки: из черновика (по типу колонки), иначе дефолт
+  const platform = st.platform ?? platformForKind(st.kind) ?? config.wizardPlatform;
 
   return sse(async (send) => {
     const t0 = Date.now();
@@ -73,14 +75,14 @@ export async function POST(req: NextRequest) {
         finish(await runClassify(st, emit));
         return;
       case "discover":
-        // адрес черновика фиксируется при создании (шаг 1 = выполнен); повторный поиск — кнопка скана
-        finish({ ok: true, note: "адрес черновика уже выбран; для повторного поиска используйте «Сканировать сеть» на шаге 1" });
+        // адрес черновика фиксируется при создании (шаг «Поиск» = выполнен); повторный поиск — кнопка скана
+        finish({ ok: true, note: "адрес черновика уже выбран; для повторного поиска используйте «Сканировать сеть» на шаге «Поиск» (3)" });
         return;
       case "stand":
-        finish(await runStandCheck(emit));
+        finish(await runStandCheck(platform, emit));
         return;
       case "ota":
-        finish(await runOtaCheck(device, emit));
+        finish(await runOtaCheck(device, platform, emit));
         return;
       case "adbroot":
         finish(await runAdbRoot(device, emit));
@@ -122,7 +124,7 @@ export async function POST(req: NextRequest) {
         emit({ type: "log", level: "info", text: `регистрирую колонку ${device} в панели` });
         const exists = listStations().some((s) => s.device === device);
         if (!exists) {
-          const a = addStation(device, name || undefined, (kind as "max" | "mini" | "lite" | "unknown") || "unknown");
+          const a = addStation(device, name || undefined, (kind as "max" | "mini" | "lite" | "station2" | "unknown") || "unknown");
           if (!a.ok) return finish({ ok: false, error: a.error });
         } else if (name) {
           updateStation(device, { name });
@@ -150,7 +152,7 @@ export async function POST(req: NextRequest) {
         } else {
           emit({ type: "check", id: "agent", ok: false, text: "агентов в сервисе нет — колонка добавлена в панель, но не подключена. Создайте агента на странице «Агент» и нажмите «Подключить» на колонке" });
         }
-        await patchWizard(undefined, undefined, deviceToId(device));
+        await patchWizard(undefined, undefined, deviceToId(device), kind);
         finish({ ok: true, extra: { registeredId: deviceToId(device), agent: slug } });
         return;
       }
@@ -158,12 +160,16 @@ export async function POST(req: NextRequest) {
         finish({ ok: false, error: `шаг «${step}» не исполняется автоматически` });
     }
 
-    async function patchWizard(mode?: string, model?: string, registeredId?: string) {
+    async function patchWizard(mode?: string, model?: string, registeredId?: string, kind?: string) {
       const { patchWizardState } = await import("@/lib/wizard");
       const patch: Record<string, unknown> = {};
       if (mode) patch.mode = mode;
       if (model) patch.model = model;
       if (registeredId) patch.registeredId = registeredId;
+      if (kind) {
+        patch.kind = kind;
+        patch.platform = platformForKind(kind) ?? undefined;
+      }
       if (Object.keys(patch).length) await patchWizardState(device, patch);
     }
   });

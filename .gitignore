@@ -59,3 +59,10 @@ agent-service/scripts-remote/probe.sh
 # UI screenshots — heavy, reproducible via shots-station/verify.mjs
 shots-station/*.png
 shots-ui/
+
+# timestamped backups produced by station-ready.sh / patch runs
+*.bak
+*.bak-*
+
+# runtime state written by station-ready.sh (per-machine, regenerated)
+.station-ready-state/

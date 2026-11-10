@@ -3,16 +3,17 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Activity, Bot, KeyRound, Lock, Speaker, Wand2 } from "lucide-react";
+import { Activity, Bot, KeyRound, Lock, Speaker, Terminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 
-// Три раздела: колонки, единственный агент, мастер добавления.
+// Колонки, агент и монитор сервера (живые логи по SSE).
+// Мастер добавления — не пункт меню, а кнопка «+» на странице колонок.
 // Диагностика (модели, голос, логи, статистика) — вкладкой на странице агента.
 const NAV = [
   { href: "/stations", label: "Колонки", icon: Speaker },
   { href: "/agent", label: "Агент", icon: Bot },
-  { href: "/add-station", label: "Мастер", icon: Wand2 },
+  { href: "/monitor", label: "Монитор", icon: Terminal },
 ];
 
 interface Status {

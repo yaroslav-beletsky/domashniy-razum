@@ -23,6 +23,9 @@ export const config = {
   voiceLogSshTarget: process.env.VOICE_LOG_SSH_TARGET ?? "yaroslav@192.168.88.23",
   voiceLogSshKey: process.env.VOICE_LOG_SSH_KEY ?? "/ssh/id_ed25519",
   voiceLogSshPath: process.env.VOICE_LOG_SSH_PATH ?? "~/Documents/home/station-llm/voice-chain/logs/belch-voice.log",
+  // Стенд lite-kit живёт на том же Mac .23 → тот же ssh-ключ/цель, только путь к логу.
+  // ЖИВОЙ лог демона (~/lite-kit/log/server.log), а НЕ мёртвый дубль (~/Documents/home/lite-kit/…).
+  standLogSshPath: process.env.STAND_LOG_SSH_PATH ?? "~/lite-kit/log/server.log",
   // agent-service (admin API за Bearer-токеном; токен живёт только здесь, на сервере панели).
   agentServiceUrl: (process.env.AGENT_SERVICE_URL ?? "http://host.docker.internal:4100").replace(/\/+$/, ""),
   // Адрес data-plane, который прописывается колонке (колонка ходит с LAN, а не из docker-сети).
@@ -36,9 +39,12 @@ export const config = {
   // Промежуточный резолвер, который колонка получит по DHCP при привязке (AdGuard в LAN).
   // Панель через него проверяет DNS-цепочку мастера: quasar.yandex.net → стенд.
   wizardDnsResolver: process.env.WIZARD_DNS_RESOLVER ?? "192.168.88.35",
-  // Платформа колонки в query к check_updates стенда (probe «как колонка»).
+  // Платформа по умолчанию для probe check_updates (если тип колонки в черновике
+  // не отображён на платформу — см. KIND_PLATFORM в lib/wizard.ts; для мини 2 →
+  // yandexmini_2, для Станции 2 → yandexmidi).
   wizardPlatform: process.env.WIZARD_PLATFORM ?? "yandexmini_2",
-  // Целевая прошивка: критерий шага OTA (колонка должна оказаться на этой версии).
+  // Больше НЕ критерий OTA: целевую версию по платформе называет стенд
+  // (check_updates → version). Поле оставлено для совместимости окружения.
   targetFirmware: process.env.WIZARD_TARGET_FIRMWARE ?? "0.369.1.46",
   // Мост quasar-bridge: версия апстрим-релиза GitHub — теперь только фолбэк,
   // если локального форк-бандла нет (см. bridgeForkDist ниже).

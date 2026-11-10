@@ -26,6 +26,7 @@ const TONE: Record<RingTone, { stroke: string; glow: string; pulse: boolean }> =
 // Силуэты в общем viewBox 56×72: верх цилиндра (кольцо) и высота корпуса.
 const SHAPES: Record<string, { top: number; rx: number; ry: number; bottom: number }> = {
   max: { top: 10, rx: 17, ry: 5, bottom: 66 }, // высокая
+  station2: { top: 12, rx: 18, ry: 5, bottom: 66 }, // «Станция 2»: высокая, чуть шире
   mini: { top: 30, rx: 22, ry: 6, bottom: 64 }, // шарообразная, ниже и шире
   lite: { top: 48, rx: 24, ry: 6, bottom: 64 }, // низкая «шайба»
   unknown: { top: 18, rx: 19, ry: 5.5, bottom: 66 }, // аккуратный цилиндр

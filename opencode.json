@@ -108,6 +108,56 @@
         "execute": "deny"
       }
     },
+    "coder-flash": {
+      "name": "Разработчик (flash)",
+      "description": "дешёвый быстрый кодер для рутинных мелких правок; вызывать для точечных изменений, когда не нужен основной coder",
+      "mode": "all",
+      "model": "litellm/cp-self-zai-glm-5.3-flash",
+      "temperature": 0.1,
+      "color": "success",
+      "prompt": "{file:./.opencode/prompts/_context.md}\n\n{file:./.opencode/prompts/coder-flash.md}",
+      "permission": {
+        "edit": "allow",
+        "bash": {
+          "*": "allow",
+          "git push*": "deny",
+          "git commit*": "ask",
+          "git reset*": "ask",
+          "rm -rf*": "ask",
+          "ssh*": "allow"
+        },
+        "task": {
+          "*": "deny",
+          "explore": "allow"
+        },
+        "execute": "deny"
+      }
+    },
+    "cloder": {
+      "name": "Клодер",
+      "description": "Клодер: исполнительный разработчик на Claude Opus 5.5. Пишет и доводит код шлюза, интеграций и голосового пайплайна по схемам Архитектора.",
+      "mode": "all",
+      "model": "litellm/ag-claude-opus-5-5",
+      "temperature": 0.1,
+      "color": "info",
+      "prompt": "{file:./.opencode/prompts/_context.md}\n\n{file:./.opencode/prompts/cloder.md}",
+      "permission": {
+        "edit": "allow",
+        "bash": {
+          "*": "allow",
+          "git push*": "deny",
+          "git commit*": "ask",
+          "git reset*": "ask",
+          "rm -rf*": "ask",
+          "ssh*": "allow"
+        },
+        "task": {
+          "*": "deny",
+          "explore": "allow"
+        },
+        "execute": "deny"
+      }
+    },
     "coder-glm": {
       "name": "Разработчик GLM",
       "description": "Разработчик GLM: запасной на Z.ai GLM 5.3. Если Codex недоступен или нужен второй проход по диффу.",
@@ -187,7 +237,7 @@
       "name": "Аудитор",
       "description": "Аудитор: секреты webhook, доступ к LiteLLM, логи. Код не правит. Взломом колонок не занимается.",
       "mode": "subagent",
-      "model": "litellm/cp-self-xai-grok-4.20-0309-reasoning",
+      "model": "litellm/cp-self-xai-grok-4.7",
       "temperature": 0.1,
       "color": "error",
       "prompt": "{file:./.opencode/prompts/_context.md}\n\n{file:./.opencode/prompts/security.md}",
@@ -210,9 +260,9 @@
     },
     "reverser": {
       "name": "Реверсер",
-      "description": "Реверсер: ищет обходы нашего webhook и утечки ключей на Venice DeepSeek R1. Прошивку колонок не трогает. Код не правит.",
+      "description": "Безопасник-реверсер station-llm на Venice Qwen 3.6 Plus High (#high): реверс шлюза и webhook Диалогов, agent-service, panel, голосового контура и артефактов, поиск обходов клиента и утечек ключей. Вызывать для реверса, аудита артефактов и охоты за дырами. Код не правит. Не путать с `security`: тот ревьюит диффы и общий аудит.",
       "mode": "all",
-      "model": "litellm/vnc-deepseek-r1",
+      "model": "litellm/vnc-cyber-qwen-3-6-plus#high",
       "temperature": 0.15,
       "color": "error",
       "prompt": "{file:./.opencode/prompts/_context.md}\n\n{file:./.opencode/prompts/reverser.md}",

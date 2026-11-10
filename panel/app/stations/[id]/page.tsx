@@ -41,6 +41,7 @@ const KINDS = [
   { v: "max", l: "Max" },
   { v: "mini", l: "Mini" },
   { v: "lite", l: "Lite" },
+  { v: "station2", l: "Станция 2" },
 ];
 
 function EditDialog({
@@ -117,7 +118,7 @@ function EditDialog({
           </div>
           <div className="grid gap-1.5">
             <Label>Тип</Label>
-            <div role="radiogroup" aria-label="Тип колонки" className="grid grid-cols-4 gap-1.5">
+            <div role="radiogroup" aria-label="Тип колонки" className="grid grid-cols-3 gap-1.5 sm:grid-cols-5">
               {KINDS.map((k) => (
                 <button
                   key={k.v}
@@ -126,7 +127,7 @@ function EditDialog({
                   aria-checked={kind === k.v}
                   onClick={() => setKind(k.v)}
                   className={cn(
-                    "h-11 rounded-md border text-xs transition-colors sm:h-9",
+                    "h-11 rounded-md border px-1 text-xs transition-colors sm:h-9",
                     kind === k.v ? "border-zinc-500 bg-zinc-800 text-zinc-50" : "border-zinc-800 text-zinc-400 hover:border-zinc-600",
                   )}
                 >

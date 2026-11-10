@@ -6,8 +6,8 @@ import path from "node:path";
 import { config } from "./config";
 import type { BridgeInfo } from "./station";
 
-export type StationKind = "max" | "mini" | "lite" | "unknown";
-export const STATION_KINDS: StationKind[] = ["max", "mini", "lite", "unknown"];
+export type StationKind = "max" | "mini" | "lite" | "station2" | "unknown";
+export const STATION_KINDS: StationKind[] = ["max", "mini", "lite", "station2", "unknown"];
 
 /** Последнее известное состояние (для оффлайн-карточки: «была: модель»). */
 export interface LastKnown {
@@ -125,7 +125,7 @@ export function updateStation(device: string, patch: { name?: string; kind?: str
   }
   if (patch.name !== undefined) e.name = cleanName(patch.name);
   if (patch.kind !== undefined) {
-    if (!STATION_KINDS.includes(patch.kind as StationKind)) return { ok: false, error: "тип: max | mini | lite | unknown" };
+    if (!STATION_KINDS.includes(patch.kind as StationKind)) return { ok: false, error: "тип: max | mini | lite | station2 | unknown" };
     e.kind = patch.kind as StationKind;
   }
   const err = writeFile(entries);

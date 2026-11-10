@@ -34,13 +34,13 @@ function ensureKnownHosts() {
   }
 }
 
-/** Последние N строк лога. [] при любой ошибке (offline — штатно). */
-export function sshLogTail(lines: number): Promise<string[]> {
+/** Последние N строк лога (по умолчанию — voice-chain). [] при любой ошибке (offline — штатно). */
+export function sshLogTail(lines: number, file: string = config.voiceLogSshPath): Promise<string[]> {
   ensureKnownHosts();
   return new Promise((resolve) => {
     execFile(
       "ssh",
-      [...SSH_OPTS, config.voiceLogSshTarget, `tail -n ${Math.min(Math.max(lines, 1), 300)} ${config.voiceLogSshPath} 2>/dev/null`],
+      [...SSH_OPTS, config.voiceLogSshTarget, `tail -n ${Math.min(Math.max(lines, 1), 300)} ${file} 2>/dev/null`],
       { timeout: 15000, maxBuffer: 2 * 1024 * 1024 },
       (err, stdout) => {
         if (err) return resolve([]);
@@ -50,12 +50,15 @@ export function sshLogTail(lines: number): Promise<string[]> {
   });
 }
 
-/** Потоковый tail -f лога: строки через onLine, остановка через stop(). */
-export function sshLogFollow(onLine: (line: string) => void): { stop: () => void } {
+/** Потоковый tail -f лога: строки через onLine, остановка через stop().
+ *  from — сколько последних строк отдать сразу (0 = только новые, если хвост уже взят отдельно). */
+export function sshLogFollow(onLine: (line: string) => void, opts: { file?: string; from?: number } = {}): { stop: () => void } {
   ensureKnownHosts();
+  const file = opts.file ?? config.voiceLogSshPath;
+  const from = opts.from ?? 80;
   const child = spawn(
     "ssh",
-    [...SSH_OPTS, config.voiceLogSshTarget, `tail -n 80 -f ${config.voiceLogSshPath} 2>/dev/null`],
+    [...SSH_OPTS, config.voiceLogSshTarget, `tail -n ${Math.max(from, 0)} -f ${file} 2>/dev/null`],
     { stdio: ["ignore", "pipe", "pipe"] },
   );
   let buf = "";

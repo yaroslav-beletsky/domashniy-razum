@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import type { KeyboardEvent } from "react";
 import { Terminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { shortModelName } from "@/lib/modelNames";
@@ -10,16 +12,32 @@ import { StationSvg, ringTone } from "./station-svg";
 import { AgentBadge } from "./agent-bind";
 
 export function StationCard({ s }: { s: StationView }) {
+  const router = useRouter();
   const offline = s.state === "offline";
   const model = offline ? s.last?.model : s.model;
   const mode = offline ? s.last?.mode : s.mode;
   const ip = s.ip ?? s.device.split(":")[0];
+  const href = `/stations/${s.id}`;
+
+  // Карточка целиком — кликабельная, но внутри есть настоящий <Link> на #adb.
+  // Поэтому обёртка — div (role=link), а не <a>: иначе получаются вложенные <a>
+  // (React: "In HTML, <a> cannot be a descendant of <a>" — ошибка гидратации).
+  const open = () => router.push(href);
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      open();
+    }
+  };
 
   return (
-    <Link
-      href={`/stations/${s.id}`}
+    <div
+      role="link"
+      tabIndex={0}
+      onClick={open}
+      onKeyDown={onKeyDown}
       className={cn(
-        "group flex min-h-[7.5rem] gap-4 rounded-xl border border-zinc-800 bg-zinc-950/60 p-4 transition-colors",
+        "group flex min-h-[7.5rem] cursor-pointer gap-4 rounded-xl border border-zinc-800 bg-zinc-950/60 p-4 transition-colors",
         "hover:border-zinc-600 focus-visible:border-zinc-500 focus-visible:outline-none",
         offline && "opacity-65",
       )}
@@ -62,9 +80,10 @@ export function StationCard({ s }: { s: StationView }) {
         <div className="flex items-center justify-between font-mono text-[11px] text-zinc-500">
           <span>{ip}</span>
           <span className="flex items-center gap-1">
-            {/* быстрый вход в ADB-консоль колонки (спека: кнопка Terminal на карточке) */}
+            {/* быстрый вход в ADB-консоль колонки (спека: кнопка Terminal на карточке);
+                stopPropagation — чтобы не срабатывал переход по всей карточке */}
             <Link
-              href={`/stations/${s.id}#adb`}
+              href={`${href}#adb`}
               aria-label={`ADB-консоль: ${s.name}`}
               onClick={(e) => e.stopPropagation()}
               className="flex size-9 items-center justify-center rounded-lg border border-zinc-800 text-zinc-500 transition-colors hover:border-zinc-600 hover:text-zinc-200"
@@ -77,6 +96,6 @@ export function StationCard({ s }: { s: StationView }) {
           </span>
         </div>
       </div>
-    </Link>
+    </div>
   );
 }
