@@ -17,6 +17,8 @@ export interface LastKnown {
   ip?: string;
   firmware?: string;
   bridgeVersion?: string;
+  /** MAC WiFi станции — чтобы панель находила её по текущему IP, а не по «застывшему» адресу */
+  mac?: string;
 }
 
 export interface StationMeta {
@@ -152,11 +154,12 @@ export function rememberStatus(device: string, info: BridgeInfo): void {
     ip: info.ip,
     firmware: info.firmware,
     bridgeVersion: info.bridgeVersion,
+    mac: info.mac,
   };
   const prev = meta.last;
   const same =
     prev && prev.model === next.model && prev.mode === next.mode && prev.ip === next.ip &&
-    prev.firmware === next.firmware && prev.bridgeVersion === next.bridgeVersion;
+    prev.firmware === next.firmware && prev.bridgeVersion === next.bridgeVersion && prev.mac === next.mac;
   if (same && Date.now() - lastWrite < 60000) return;
   if (same) return;
   const entries = readFile();

@@ -3,6 +3,7 @@
 // (порт 5037), перед командами делаем `adb connect` (кэш, чтобы не дёргать каждый раз).
 import { execFile, spawn } from "node:child_process";
 import { config } from "./config";
+import { resolveDevice } from "./stationAddr";
 
 export interface AdbResult {
   ok: boolean;
@@ -69,6 +70,8 @@ export async function adbEnsureConnected(device = firstDevice(), force = false):
 /** Выполнить adb-команду. Если в args есть "-s <device>", сначала гарантируем connect. */
 export async function adbExec(args: string[], timeoutMs = config.adbTimeoutMs, signal?: AbortSignal): Promise<AdbResult> {
   const si = args.indexOf("-s");
+  // адрес станции из реестра мог устареть (смена DHCP) — подменяем на актуальный по MAC
+  if (si >= 0 && args[si + 1]) args[si + 1] = resolveDevice(args[si + 1]);
   const device = si >= 0 ? args[si + 1] : undefined;
   if (device) await adbEnsureConnected(device);
   let r = await run(args, timeoutMs, signal);
@@ -108,9 +111,10 @@ export function adbShellStream(
 ): { stop: () => void } {
   let child: ReturnType<typeof spawn> | null = null;
   let stopped = false;
-  void adbEnsureConnected(device).then(() => {
+  const realDev = resolveDevice(device);
+  void adbEnsureConnected(realDev).then(() => {
     if (stopped) return;
-    child = spawn(config.adbPath, ["-s", device, "shell", shellCmd], {
+    child = spawn(config.adbPath, ["-s", realDev, "shell", shellCmd], {
       env: adbEnv(),
       stdio: ["ignore", "pipe", "pipe"],
     });

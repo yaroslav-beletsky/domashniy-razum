@@ -1,15 +1,15 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "default_agent": "orchestrator",
+  "default_agent": "StationLLM",
   "agent": {
-    "orchestrator": {
-      "name": "Руководитель",
+    "StationLLM": {
+      "name": "StationLLM",
       "description": "Руководитель: принимает задачу и сразу раздаёт отделам. Сам код не читает и не пишет. Основной агент проекта.",
       "mode": "primary",
       "model": "litellm/cp-self-xai-grok-4.7",
       "temperature": 0.2,
       "color": "primary",
-      "prompt": "{file:./.opencode/prompts/_context.md}\n\n{file:./.opencode/prompts/orchestrator.md}",
+      "prompt": "{file:./.opencode/prompts/_context.md}\n\n{file:./.opencode/prompts/stationllm.md}",
       "permission": {
         "read": "deny",
         "glob": "deny",
@@ -86,7 +86,7 @@
     "coder": {
       "name": "Разработчик",
       "description": "Разработчик: шлюз навыка Алисы, интеграция LiteLLM, правки голосового пайплайна. Основной кодер на Codex GPT-6.1 Sol.",
-      "mode": "all",
+      "mode": "subagent",
       "model": "litellm/cx-gpt-6.1-sol",
       "temperature": 0.1,
       "color": "success",
@@ -111,7 +111,7 @@
     "coder-flash": {
       "name": "Разработчик (flash)",
       "description": "дешёвый быстрый кодер для рутинных мелких правок; вызывать для точечных изменений, когда не нужен основной coder",
-      "mode": "all",
+      "mode": "subagent",
       "model": "litellm/cp-self-zai-glm-5.3-flash",
       "temperature": 0.1,
       "color": "success",
@@ -136,7 +136,7 @@
     "cloder": {
       "name": "Клодер",
       "description": "Клодер: исполнительный разработчик на Claude Opus 5.5. Пишет и доводит код шлюза, интеграций и голосового пайплайна по схемам Архитектора.",
-      "mode": "all",
+      "mode": "subagent",
       "model": "litellm/ag-claude-opus-5-5",
       "temperature": 0.1,
       "color": "info",
@@ -161,7 +161,7 @@
     "coder-glm": {
       "name": "Разработчик GLM",
       "description": "Разработчик GLM: запасной на Z.ai GLM 5.3. Если Codex недоступен или нужен второй проход по диффу.",
-      "mode": "all",
+      "mode": "subagent",
       "model": "litellm/cp-self-zai-glm-5.3",
       "temperature": 0.1,
       "color": "secondary",
@@ -186,7 +186,7 @@
     "coder-kimi": {
       "name": "Разработчик Kimi",
       "description": "Разработчик Kimi: второй запасной на Kimi 2.8 Code, особенно длинные файлы.",
-      "mode": "all",
+      "mode": "subagent",
       "model": "litellm/cp-self-kimi-k2.8-code",
       "temperature": 0.1,
       "color": "secondary",
@@ -211,7 +211,7 @@
     "devops": {
       "name": "Девопс",
       "description": "Девопс: Docker, публичный HTTPS для webhook Диалогов, деплой шлюза рядом с LiteLLM на домашнем Mac mini.",
-      "mode": "all",
+      "mode": "subagent",
       "model": "litellm/cp-self-xai-grok-4.7-build-fast",
       "temperature": 0.1,
       "color": "warning",
@@ -261,7 +261,7 @@
     "reverser": {
       "name": "Реверсер",
       "description": "Безопасник-реверсер station-llm на Venice Qwen 3.6 Plus High (#high): реверс шлюза и webhook Диалогов, agent-service, panel, голосового контура и артефактов, поиск обходов клиента и утечек ключей. Вызывать для реверса, аудита артефактов и охоты за дырами. Код не правит. Не путать с `security`: тот ревьюит диффы и общий аудит.",
-      "mode": "all",
+      "mode": "subagent",
       "model": "litellm/vnc-cyber-qwen-3-6-plus#high",
       "temperature": 0.15,
       "color": "error",
@@ -286,7 +286,7 @@
     "cyber": {
       "name": "Кибер",
       "description": "Кибер: универсальный помощник на Venice DeepSeek V4.1 Flash Uncensored. Разбор своих систем и кода.",
-      "mode": "all",
+      "mode": "subagent",
       "model": "litellm/vnc-cyber-deepseek-v4-1-flash-uncensored",
       "temperature": 0.2,
       "color": "warning",
@@ -311,7 +311,7 @@
     "cyber-qwen": {
       "name": "Кибер Qwen",
       "description": "Кибер Qwen: второй универсальный помощник на Venice Qwen 3.6 Plus Uncensored. Другой взгляд или если Кибер недоступен.",
-      "mode": "all",
+      "mode": "subagent",
       "model": "litellm/vnc-cyber-qwen-3-6-plus",
       "temperature": 0.2,
       "color": "secondary",
@@ -350,6 +350,12 @@
         },
         "execute": "deny"
       }
+    },
+    "build": {
+      "disable": true
+    },
+    "plan": {
+      "disable": true
     }
   },
   "permission": {

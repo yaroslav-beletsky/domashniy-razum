@@ -17,6 +17,10 @@
   IP `192.168.88.23`. Подменяет `quasar.yandex.net`/`scbh.yandex.net`. Целевая прошивка — `.332`.
 - **Цель midi `.32`:** MAC `b8:87:6e:57:9e:48`, платформа `yandexmidi`, `device_id=U008ZS200V1E1K`,
   hostname `Yandex-Station-gen2`, ядро `4.9.68 aarch64`, busybox (без `getprop`). IP плавал `.32→.20→.48`.
+- **Адрес midi закреплён (2026-11-10):** на роутере MikroTik `192.168.88.1` статический DHCP-резерв
+  `192.168.88.48` по MAC `B8:87:6E:57:9E:48` (было `dynamic=true`). Панель дополнительно умеет находить
+  станцию по MAC при смене IP (`panel/lib/stationAddr.ts`). Dev-панель запускать ТОЛЬКО через
+  `/tmp/station-panel-dev.sh` (он задаёт `ADB_HOME=secrets/adb`).
 - **Симптом на `.32` (прошивка `.50`):** `HEAD /generate_204` (host `scbh.yandex.net`) по HTTP → 204,
   а на `quasar.yandex.net:443` — TLS Alert `15 03 03 00 02 02 30` (fatal `unknown_ca`). Устойчив,
   реконнект ~раз в 30 с. Ловится `tcpdump -i en0 -nn -X 'host 192.168.88.32 and tcp port 443'`.
@@ -252,3 +256,48 @@ EM OV TLS CA - G3C`, notBefore 2026-10-20). Наш стенд уводит ко�
     (життер virtiofs: host-правка файла БД не была видна живому процессу), после ребута agent-service healthy.
   - mini `.79` и LiteLLM `.207:4000` не тронуты (кроме самого agent-service). Стенд `~/lite-kit`, поллеры
     `/tmp/fw` не тронуты. Панель и её `agent:home` у mini работают как раньше. Не коммичено.
+- (2026-11-10) (подпись `cyber`) **Карточка midi сама «уходит в offline» — причина найдена и закрыта.**
+  Причина (по фактам, не догадки): (1) у midi адрес по DHCP — в аренде роутера запись
+  `192.168.88.48 … b8:87:6e:57:9e:48` была `dynamic=true`, статического резерва на MAC НЕ было; у mini `.79`
+  адрес статический (`ip addr` без `dynamic`), поэтому она стабильна. (2) Колонка периодически
+  перезагружается: в момент разбора `uptime≈3 мин`, загрузки в логах 09:29/09:36/09:53/09:59/11:32/12:27;
+  на каждом ребуте `adbd`/`:5555` недоступны 1–2 мин, а панель опрашивает застывший `IP:5555` → карточка
+  offline; при смене адреса — залипает. (3) `S98adbd` — РАЗОВЫЙ boot-скрипт (в `start` один
+  `pidof adbd || adbd`, периодического сторожа нет): в рантайме adbd сам не поднимается.
+  Лечение: **роутер `.1`** — статический DHCP-резерв `192.168.88.48 / B8:87:6E:57:9E:48 /
+  comment="station-llm midi (cyber)"` (REST `POST /rest/ip/dhcp-server/lease/add`; `dynamic=true` → `false`,
+  запись midi одна); **adbd-watchdog** — `/data/opt/adbd-watchdog.sh` (маркеры + проверка `pidof adbd` и
+  LISTEN `:5555` каждые 15 с, pidfile), стартует из пропатченного `/etc/init.d/S98adbd`
+  (remount rw→push→ro; бэкап `/data/opt/backup/S98adbd.orig-<ts>`); **панель** — `panel/lib/stationAddr.ts`
+  (+`adb.ts`/`station.ts`/`stationsStore.ts`): MAC колонки лежит в `last.mac`, адрес транслируется на
+  актуальный по ARP в момент adb-вызова (`resolveDevice`), реестр/`id` не меняются.
+  Проверка: убил `adbd` на midi → через ~15 с поднят, `:5555` LISTEN (лог сторожа); панель при заведомо
+  ложном адресе midi `.199` всё равно нашла её по MAC на `.48` (healthy). Итог `GET /api/stations` →
+  online 2 / offline 0. mini `.79`, LiteLLM `.207`, стенд `~/lite-kit` не тронуты. Не коммичено.
+  Грабли: dev-панель поднимать через `/tmp/station-panel-dev.sh` (он задаёт `ADB_HOME=secrets/adb`; иначе
+  реестр ищется в `/home/node/.android` — не читается, `last.mac` теряется). `.env` панели дополнен `ADB_DEVICES`.
+- (2026-11-10) (подпись `cyber`) **Прошивки: «нужный набор» = по одной последней версии на 23 платформы.**
+  Владелец держит локально только последнюю версию на платформу (23 файла, **12.41 ГБ**), остальное (всего
+  в зеркале 1769 версий) — по необходимости, из зеркала. Источник — чужое (не наше) зеркало
+  `http://144.76.194.29:62891/<platform>/<version>/update.zip` (`SimpleHTTP`, без Range). Артефакты:
+  `firmware/needed-latest.tsv` (23 строки: platform/version/size/url), `firmware/all.tsv` (все 1769),
+  `firmware/fetch-needed.sh` (`curl -L --retry 5 -C -`, кладёт `<dir>/<platform>/<version>.zip`, сверяет
+  размер, идемпотентно), `docs/firmware-download.md` (инструкция + список, заглушка под Я.Диск). Выбор
+  «последней» — по численному сравнению версии, не по алфавиту. Санити: `yandexmicro`/`yandexmini`/`yandexmidi`
+  ведут параллельные ветки (напр. у micro последняя по номеру `0.374…20261106`, но есть более свежая по дате
+  ветка `0.373…20261109`); у старых платформ (`elari_a98` 2020, `lightcomm` 2020, `linkplay_a98` 2021,
+  `prestigio_smart_mate` 2021, `yandexmodule` 2020) в образе старый CA-стор — отметил как риск `unknown_ca`
+  при рутовании (выбор не менял). 5+ URL проверены `curl -sI` → 200 и совпадение `Content-Length`.
+  `192.168.88.207` не тронут. Не коммичено.
+- (2026-11-11) (подпись `cyber`) **Набор прошивок собран на `dev-desktop-ams`, сверен и перенесён на стенд.**
+  Собрал нужный набор (23 файла, **12.41 ГБ**) на AMS в `~/firmware-needed/<platform>/<version>.zip`. Источник —
+  `needed-latest.tsv`; брал с зеркала `http://144.76.194.29:62891/…` (с AMS быстро). **Переиспользовал из уже лежавшего
+  `~/firmware-mirror/`: все 23 (совпали platform/version/размер), докачано 0.** Совпадающие файлы связал `ln -f`
+  (хардлинки, места не занимают). Чтобы не держать лишнее — удалил из `~/firmware-mirror/` 24 файла, НЕ входящие в
+  набор (**освободил 18.48 ГБ**; осталось 23, они же иноды набора). Целостность: 10 zip/JAR → `unzip -t` OK; 13 не-zip
+  (Yandex-контейнеры: `data`, `ASCII cpio`, `XZ`) → сверка размера с источником + sha256. Манифест —
+  `~/firmware-needed/CATALOG.md` (platform, version, size_bytes, sha256, тип, проверка). **Перенёс на мак по Tailscale
+  (`100.113.50.84`) rsync'ом** в `/Users/yaroslav/lite-kit/firmware/<platform>/<version>.zip`; постсверка 23/23 по
+  размеру. Существующий `~/lite-kit/firmware/yandexmidi/0.332…zip` (свой файл, другой ресурс) и `manifest.json` стенда
+  НЕ задеты (проверено). `~/firmware-needed/` на AMS оставлен целым под будущую заливку на Я.Диск.
+  `df -h /`: AMS 81G/116G, avail 36G; мак avail 324G. `192.168.88.207` не тронут. Не коммичено.

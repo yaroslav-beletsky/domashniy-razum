@@ -6,6 +6,7 @@
 // Секреты (QUASAR_LLM_API_KEY и т.п.) наружу не отдаём и не трогаем.
 import fs from "node:fs";
 import { adbExec, adbPull, adbPush, firstDevice } from "./adb";
+import { rememberMac } from "./stationAddr";
 import { rememberStatus } from "./stationsStore";
 import { derivePanelMode, normalizeMode, ROUTING_HYBRID, ROUTING_LLM, type PanelMode, type RoutingLike } from "./modes";
 
@@ -18,6 +19,8 @@ export interface BridgeInfo {
   bridgeVersion?: string;
   firmware?: string;
   ip?: string;
+  /** MAC wlan0 — для поиска станции по актуальному IP при смене DHCP-адреса */
+  mac?: string;
   /** режим панели: alice | hybrid | llm (выводится из mode моста и routing) */
   mode?: PanelMode;
   /** сырой режим моста: observe | hybrid */
@@ -70,13 +73,14 @@ async function readStationStatus(device: string): Promise<BridgeInfo> {
   }
   base.reachable = true;
 
-  const [st, ver, fw, cfg, env, ip] = await Promise.all([
+  const [st, ver, fw, cfg, env, ip, mac] = await Promise.all([
     adbExec(["-s", device, "shell", `sh ${APP}/control.sh status`], 10000),
     adbExec(["-s", device, "shell", `cat ${APP}/VERSION 2>/dev/null`], 8000),
     adbExec(["-s", device, "shell", "cat /system/vendor/quasar/VERSION 2>/dev/null"], 8000),
     adbExec(["-s", device, "shell", `cat ${STATE}/config.json 2>/dev/null`], 8000),
     adbExec(["-s", device, "shell", `grep -E '^QUASAR_(MODE|LLM_MODEL)=' ${STATE}/runtime.env 2>/dev/null`], 8000),
     adbExec(["-s", device, "shell", "ip -4 addr show wlan0 2>/dev/null | grep inet | head -1"], 8000),
+    adbExec(["-s", device, "shell", "cat /sys/class/net/wlan0/address 2>/dev/null"], 8000),
   ]);
 
   if (st.ok) {
@@ -109,6 +113,13 @@ async function readStationStatus(device: string): Promise<BridgeInfo> {
   if (ip.ok) {
     const m = ip.stdout.match(/inet (\d+\.\d+\.\d+\.\d+)/);
     if (m) base.ip = m[1];
+  }
+  if (mac.ok) {
+    const m = mac.stdout.trim().match(/([0-9a-f]{2}:){5}[0-9a-f]{2}/i);
+    if (m) {
+      base.mac = m[0].toLowerCase();
+      rememberMac(device, base.mac);
+    }
   }
   return base;
 }
